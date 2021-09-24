@@ -1,20 +1,8 @@
-//! Example demonstrating how to make use of individual track audio events,
-//! and how to use the `TrackQueue` system.
-//!
-//! Requires the "cache", "standard_framework", and "voice" features be enabled in your
-//! Cargo.toml, like so:
-//!
-//! ```toml
-//! [dependencies.serenity]
-//! git = "https://github.com/serenity-rs/serenity.git"
-//! features = ["cache", "framework", "standard_framework", "voice"]
-//! ```
-use std::{
-    collections::VecDeque,
-    env,
-    sync::Arc,
-    time::Duration,
-};
+mod events;
+mod msg;
+
+use crate::events::{TrackEndNotifier, TrackStartNotifier};
+use crate::msg::check_msg;
 
 use serenity::{
     async_trait,
@@ -28,13 +16,12 @@ use serenity::{
     },
     model::{channel::Message, gateway::Ready},
     prelude::*,
-    Result as SerenityResult,
 };
-
 use songbird::{
     input::{self, restartable::Restartable},
-    Event, EventContext, EventHandler as VoiceEventHandler, SerenityInit, TrackEvent,
+    Event, SerenityInit, TrackEvent,
 };
+use std::{collections::VecDeque, env, sync::Arc};
 
 struct Handler;
 
@@ -46,7 +33,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(leave, play, skip, stop)]
+#[commands(play, skip, stop)]
 struct General;
 
 #[tokio::main]
@@ -93,89 +80,16 @@ async fn join(ctx: &Context, msg: &Message) -> Option<Arc<Mutex<songbird::Call>>
 
     let manager = songbird::get(ctx)
         .await
-        .expect("Songbird Voice client placed in at initialisation.")
+        .expect("Songbird Voice client placed in at initialization.")
         .clone();
 
-    let handler_lock = if let Some(call) = manager.get(guild_id) {
-        call
-    } else {
-        let handler_lock = manager.join(guild_id, connect_to).await.0;
-        {
-            let mut handler = handler_lock.lock().await;
-            let _ = handler.deafen(true).await;
-        }
-        handler_lock
-    };
+    let handler_lock = manager.join(guild_id, connect_to).await.0;
+    {
+        let mut handler = handler_lock.lock().await;
+        let _ = handler.deafen(true).await;
+    }
 
     Some(handler_lock)
-}
-
-#[command]
-#[only_in(guilds)]
-async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).await.unwrap();
-    let guild_id = guild.id;
-
-    let manager = songbird::get(ctx)
-        .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
-    let has_handler = manager.get(guild_id).is_some();
-
-    if has_handler {
-        if let Err(e) = manager.remove(guild_id).await {
-            check_msg(
-                msg.channel_id
-                    .say(&ctx.http, format!("Failed: {:?}", e))
-                    .await,
-            );
-        }
-
-        check_msg(msg.channel_id.say(&ctx.http, "Left voice channel").await);
-    } else {
-        check_msg(msg.reply(ctx, "Not in a voice channel").await);
-    }
-
-    Ok(())
-}
-
-#[command]
-#[only_in(guilds)]
-async fn mute(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).await.unwrap();
-    let guild_id = guild.id;
-
-    let manager = songbird::get(ctx)
-        .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
-
-    let handler_lock = match manager.get(guild_id) {
-        Some(handler) => handler,
-        None => {
-            check_msg(msg.reply(ctx, "Not in a voice channel").await);
-
-            return Ok(());
-        }
-    };
-
-    let mut handler = handler_lock.lock().await;
-
-    if handler.is_mute() {
-        check_msg(msg.channel_id.say(&ctx.http, "Already muted").await);
-    } else {
-        if let Err(e) = handler.mute(true).await {
-            check_msg(
-                msg.channel_id
-                    .say(&ctx.http, format!("Failed: {:?}", e))
-                    .await,
-            );
-        }
-
-        check_msg(msg.channel_id.say(&ctx.http, "Now muted").await);
-    }
-
-    Ok(())
 }
 
 #[command]
@@ -218,35 +132,43 @@ async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let input: input::Input = source.into();
     let metadata = input.metadata.clone();
     let (track, track_handle) = songbird::tracks::create_player(input);
+    let title = metadata.title.unwrap_or("Unknown".into());
 
     if let Some(handler_lock) = join(ctx, msg).await {
         let mut handler = handler_lock.lock().await;
 
+        // Set TrackEndNotifier
         handler.remove_all_global_events();
         track_handle
             .add_event(
                 Event::Track(TrackEvent::End),
                 TrackEndNotifier {
                     call: handler_lock.clone(),
+                    chan_id: msg.channel_id,
+                    http: ctx.http.clone(),
                 },
             )
             .expect("Error adding TrackEndNotifier");
 
+        // Set TrackStartNotifier
+        track_handle
+            .add_event(
+                Event::Track(TrackEvent::Play),
+                TrackStartNotifier {
+                    title: title.clone(),
+                    chan_id: msg.channel_id,
+                    http: ctx.http.clone(),
+                },
+            )
+            .expect("Error adding TrackStartNotifier");
+
         handler.enqueue(track);
 
-        check_msg(
-            msg.channel_id
-                .say(
-                    &ctx.http,
-                    format!(
-                        "Added {} - {}\nSongs in queue: {}",
-                        metadata.artist.unwrap_or("Unknown".into()),
-                        metadata.title.unwrap_or("Unknown".into()),
-                        handler.queue().len(),
-                    ),
-                )
-                .await,
-        );
+        let play_msg = match handler.queue().current_queue().len() {
+            1 => format!("Playing {}", title),
+            _ => format!("Added {}\nSongs in queue: {}", title, handler.queue().len()),
+        };
+        check_msg(msg.channel_id.say(&ctx.http, play_msg).await);
     }
 
     Ok(())
@@ -281,8 +203,6 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
                     )
                     .await,
             );
-        } else {
-            check_msg(msg.channel_id.say(&ctx.http, "Queue ended").await);
         }
     }
 
@@ -304,48 +224,4 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     }
 
     Ok(())
-}
-
-async fn set_leave_timer(call: Arc<Mutex<songbird::Call>>) {
-    let mut handle = call.lock().await;
-    handle.add_global_event(
-        Event::Delayed(Duration::from_secs(600)),
-        ChannelIdleLeaver { call: call.clone() },
-    );
-}
-
-struct ChannelIdleLeaver {
-    call: Arc<Mutex<songbird::Call>>,
-}
-
-#[async_trait]
-impl VoiceEventHandler for ChannelIdleLeaver {
-    async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        let mut handler = self.call.lock().await;
-        handler.leave().await.unwrap();
-        None
-    }
-}
-
-struct TrackEndNotifier {
-    call: Arc<Mutex<songbird::Call>>,
-}
-
-#[async_trait]
-impl VoiceEventHandler for TrackEndNotifier {
-    async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        if !self.call.lock().await.queue().is_empty() {
-            return None;
-        }
-        set_leave_timer(self.call.clone()).await;
-
-        None
-    }
-}
-
-/// Checks that a message successfully sent; if not, then logs why to stdout.
-fn check_msg(result: SerenityResult<Message>) {
-    if let Err(why) = result {
-        println!("Error sending message: {:?}", why);
-    }
 }
