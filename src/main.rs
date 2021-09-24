@@ -21,7 +21,7 @@ use songbird::{
     input::{self, restartable::Restartable},
     Event, SerenityInit, TrackEvent,
 };
-use std::{collections::VecDeque, env, sync::Arc};
+use std::{env, sync::Arc};
 
 struct Handler;
 
@@ -183,14 +183,13 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
-        let remove_first = |q: &mut VecDeque<songbird::tracks::Queued>| {
+        let queue = handler.queue();
+        queue.modify_queue(|q| {
             match q.pop_front() {
                 Some(t) => t.stop().unwrap_or(()),
                 None => (),
             };
-        };
-        let queue = handler.queue();
-        queue.modify_queue(remove_first);
+        });
         if let Some(t) = queue.current() {
             let _ = t.play();
             let metadata = t.metadata().clone();
@@ -294,6 +293,66 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
-async fn remove(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    // Parse arguments
+    let arg = match args.single::<String>() {
+        Ok(a) => a,
+        Err(_) => {
+            check_msg(msg.reply(&ctx.http, "Missing 1 argument").await);
+            return Ok(());
+        },
+    };
+    let idx = arg.to_lowercase().parse::<usize>();
+    if let Ok(i) = idx {
+        if i == 0 {
+            check_msg(msg.reply(&ctx.http, "Invalid index").await);
+            return Ok(());
+        }
+        let i = i - 1;
+
+        if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+            let handler = handler_lock.lock().await;
+            let queue = handler.queue();
+
+            // Get info about the track to be removed
+            let current_queue = queue.current_queue();
+            let track = match current_queue.get(i) {
+                Some(t) => t,
+                None => {
+                    check_msg(msg.reply(&ctx.http, "Invalid index").await);
+                    return Ok(());
+                }
+            };
+            let artist = track
+                .metadata()
+                .artist
+                .as_ref()
+                .unwrap_or(&"Unknown".to_owned())
+                .to_owned();
+            let title = track
+                .metadata()
+                .title
+                .as_ref()
+                .unwrap_or(&"Unknown".to_owned())
+                .to_owned();
+
+            // Remove requested track
+            queue.modify_queue(|q| {
+                match q.remove(i) {
+                    Some(t) => t.stop().unwrap_or(()),
+                    None => (),
+                };
+            });
+
+            // Respond
+            check_msg(
+                msg.reply(&ctx.http, format!("Removed {} - {}", artist, title))
+                    .await,
+            );
+        }
+    } else {
+        check_msg(msg.reply(&ctx.http, "Invalid argument").await);
+    }
+
     Ok(())
 }
