@@ -33,7 +33,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(play, skip, stop)]
+#[commands(play, skip, stop, list, remove)]
 struct General;
 
 #[tokio::main]
@@ -60,7 +60,11 @@ async fn main() {
         .map_err(|why| println!("Client ended: {:?}", why));
 }
 
-async fn join(ctx: &Context, msg: &Message) -> Option<Arc<Mutex<songbird::Call>>> {
+async fn join_or_get(
+    ctx: &Context,
+    msg: &Message,
+    join: bool,
+) -> Option<Arc<Mutex<songbird::Call>>> {
     let guild = msg.guild(&ctx.cache).await.unwrap();
     let guild_id = guild.id;
 
@@ -83,18 +87,27 @@ async fn join(ctx: &Context, msg: &Message) -> Option<Arc<Mutex<songbird::Call>>
         .expect("Songbird Voice client placed in at initialization.")
         .clone();
 
-    let handler_lock = manager.join(guild_id, connect_to).await.0;
-    {
-        let mut handler = handler_lock.lock().await;
-        let _ = handler.deafen(true).await;
-    }
+    let handler_lock = if join {
+        let handler_lock = manager.join(guild_id, connect_to).await.0;
+        {
+            let mut handler = handler_lock.lock().await;
+            let _ = handler.deafen(true).await;
+        }
+        Some(handler_lock)
+    } else {
+        manager.get(guild_id)
+    };
 
-    Some(handler_lock)
+    handler_lock
 }
 
 #[command]
 #[only_in(guilds)]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    if args.is_empty() {
+        return Ok(());
+    }
+
     // Create source
     let arg_message = args.message();
     let source = if let Ok(url) = url::Url::parse(arg_message) {
@@ -108,7 +121,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         Ok(s) => s,
         Err(e) => {
             println!("Error starting source: {:?}", e);
-            check_msg(msg.channel_id.say(&ctx.http, "Error sourcing ffmpeg").await);
+            check_msg(msg.reply(&ctx.http, "Error sourcing ffmpeg").await);
             return Ok(());
         }
     };
@@ -119,7 +132,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let title = metadata.title.unwrap_or("Unknown".into());
     let artist = metadata.artist.unwrap_or("Unknown".into());
 
-    if let Some(handler_lock) = join(ctx, msg).await {
+    if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
         let mut handler = handler_lock.lock().await;
 
         // Set TrackEndNotifier
@@ -159,7 +172,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 handler.queue().len()
             ),
         };
-        check_msg(msg.channel_id.say(&ctx.http, play_msg).await);
+        check_msg(msg.reply(&ctx.http, play_msg).await);
     }
 
     Ok(())
@@ -168,7 +181,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Some(handler_lock) = join(ctx, msg).await {
+    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
         let remove_first = |q: &mut VecDeque<songbird::tracks::Queued>| {
             match q.pop_front() {
@@ -182,17 +195,16 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             let _ = t.play();
             let metadata = t.metadata().clone();
             check_msg(
-                msg.channel_id
-                    .say(
-                        &ctx.http,
-                        format!(
-                            "Now playing {} - {}\nSongs in queue: {}",
-                            metadata.artist.unwrap_or("Unknown".into()),
-                            metadata.title.unwrap_or("Unknown".into()),
-                            queue.len(),
-                        ),
-                    )
-                    .await,
+                msg.reply(
+                    &ctx.http,
+                    format!(
+                        "Now playing {} - {}\nSongs in queue: {}",
+                        metadata.artist.unwrap_or("Unknown".into()),
+                        metadata.title.unwrap_or("Unknown".into()),
+                        queue.len(),
+                    ),
+                )
+                .await,
             );
         }
     }
@@ -203,7 +215,7 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Some(handler_lock) = join(ctx, msg).await {
+    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
@@ -211,8 +223,77 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         }
         let _ = queue.stop();
 
-        check_msg(msg.channel_id.say(&ctx.http, "Queue cleared.").await);
+        check_msg(msg.reply(&ctx.http, "Queue cleared.").await);
     }
 
+    Ok(())
+}
+
+#[command]
+#[only_in(guilds)]
+async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    // Parse arguments
+    let arg = match args.single::<String>() {
+        Ok(a) => a,
+        Err(_) => "1".to_owned(),
+    };
+    let start = match arg.to_lowercase().as_str() {
+        "max" => None,
+        s => Some(s.parse::<usize>().unwrap_or(0)),
+    };
+
+    // Build output string
+    let (total, list) = if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+        let handler = handler_lock.lock().await;
+        let queue = handler.queue().current_queue();
+        let queue_total = queue.len();
+
+        let start = if let Some(i) = start {
+            i
+        } else {
+            std::cmp::max(1, queue_total.saturating_sub(10))
+        };
+
+        let list = queue
+            .iter()
+            .zip(start..start + 10)
+            .map(|(t, i)| {
+                let artist = t
+                    .metadata()
+                    .artist
+                    .as_ref()
+                    .unwrap_or(&"Unknown".to_owned())
+                    .to_owned();
+                let title = t
+                    .metadata()
+                    .title
+                    .as_ref()
+                    .unwrap_or(&"Unknown".to_owned())
+                    .to_owned();
+                format!("{:>2}: {} - {}", i, artist, title)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace("`", "");
+
+        (queue_total, list)
+    } else {
+        return Ok(());
+    };
+
+    // Respond
+    let out_msg = match total {
+        0 => "Queue is empty".to_owned(),
+        1 => format!("{} song in queue\n```{}```", 1, list),
+        n => format!("{} songs in queue\n```{}```", n, list),
+    };
+    check_msg(msg.reply(&ctx.http, out_msg).await);
+
+    Ok(())
+}
+
+#[command]
+#[only_in(guilds)]
+async fn remove(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     Ok(())
 }
