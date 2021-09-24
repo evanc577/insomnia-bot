@@ -17,9 +17,11 @@ use serenity::{
     model::{channel::Message, gateway::Ready},
     prelude::*,
 };
+use songbird::tracks::PlayMode;
 use songbird::{
     input::{self, restartable::Restartable},
     Event, SerenityInit, TrackEvent,
+    tracks::TrackHandle,
 };
 use std::{env, sync::Arc};
 
@@ -33,7 +35,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(play, skip, stop, list, remove)]
+#[commands(play, skip, stop, pause, list, remove)]
 struct General;
 
 #[tokio::main]
@@ -77,7 +79,6 @@ async fn join_or_get(
         Some(channel) => channel,
         None => {
             check_msg(msg.reply(ctx, "Not in a voice channel").await);
-
             return None;
         }
     };
@@ -101,10 +102,44 @@ async fn join_or_get(
     handler_lock
 }
 
+fn get_artist_title(track: &TrackHandle) -> (String, String) {
+    let artist = track
+        .metadata()
+        .artist
+        .as_ref()
+        .unwrap_or(&"Unknown".to_owned())
+        .to_owned();
+    let title = track
+        .metadata()
+        .title
+        .as_ref()
+        .unwrap_or(&"Unknown".to_owned())
+        .to_owned();
+
+    (artist, title)
+}
+
 #[command]
 #[only_in(guilds)]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    // If no arguments, resume current track
     if args.is_empty() {
+        if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+            let handler = handler_lock.lock().await;
+            let queue = handler.queue();
+            if let Some(track) = queue.current() {
+                if let Ok(info) = track.get_info().await {
+                    if info.playing != PlayMode::Pause {
+                        check_msg(msg.reply(&ctx.http, "No paused track").await);
+                        return Ok(());
+                    }
+                }
+                let (artist, title) = get_artist_title(&track);
+                let _ = track.play();
+                check_msg(msg.reply(&ctx.http, format!("Resuming {} - {}", artist, title)).await);
+            }
+        }
+
         return Ok(());
     }
 
@@ -119,18 +154,15 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     };
     let source = match source {
         Ok(s) => s,
-        Err(e) => {
-            println!("Error starting source: {:?}", e);
-            check_msg(msg.reply(&ctx.http, "Error sourcing ffmpeg").await);
+        Err(_) => {
+            check_msg(msg.reply(&ctx.http, "Error loading source").await);
             return Ok(());
         }
     };
 
     let input: input::Input = source.into();
-    let metadata = input.metadata.clone();
     let (track, track_handle) = songbird::tracks::create_player(input);
-    let title = metadata.title.unwrap_or("Unknown".into());
-    let artist = metadata.artist.unwrap_or("Unknown".into());
+    let (artist, title) = get_artist_title(&track_handle);
 
     if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
         let mut handler = handler_lock.lock().await;
@@ -180,32 +212,38 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
+async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
+    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+        let handler = handler_lock.lock().await;
+        let queue = handler.queue();
+        if let Some(track) = queue.current() {
+            if let Ok(info) = track.get_info().await {
+                if info.playing != PlayMode::Play {
+                    check_msg(msg.reply(&ctx.http, "No playing track").await);
+                    return Ok(());
+                }
+            }
+            let (artist, title) = get_artist_title(&track);
+            let _ = track.pause();
+            check_msg(msg.reply(&ctx.http, format!("Paused {} - {}", artist, title)).await);
+        }
+    }
+
+    Ok(())
+}
+
+#[command]
+#[only_in(guilds)]
 async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
-        queue.modify_queue(|q| {
-            match q.pop_front() {
-                Some(t) => t.stop().unwrap_or(()),
-                None => (),
-            };
-        });
-        if let Some(t) = queue.current() {
-            let _ = t.play();
-            let metadata = t.metadata().clone();
-            check_msg(
-                msg.reply(
-                    &ctx.http,
-                    format!(
-                        "Now playing {} - {}\nSongs in queue: {}",
-                        metadata.artist.unwrap_or("Unknown".into()),
-                        metadata.title.unwrap_or("Unknown".into()),
-                        queue.len(),
-                    ),
-                )
-                .await,
-            );
+        if let Some(track) = queue.current() {
+            let (artist, title) = get_artist_title(&track);
+            let _ = track.stop();
+            check_msg(msg.reply(&ctx.http, format!("Skipped {} - {}", artist, title)).await);
         }
+
     }
 
     Ok(())
@@ -221,8 +259,7 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             let _ = track.stop();
         }
         let _ = queue.stop();
-
-        check_msg(msg.reply(&ctx.http, "Queue cleared.").await);
+        check_msg(msg.reply(&ctx.http, "Playback stopped").await);
     }
 
     Ok(())
@@ -257,18 +294,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             .iter()
             .zip(start..start + 10)
             .map(|(t, i)| {
-                let artist = t
-                    .metadata()
-                    .artist
-                    .as_ref()
-                    .unwrap_or(&"Unknown".to_owned())
-                    .to_owned();
-                let title = t
-                    .metadata()
-                    .title
-                    .as_ref()
-                    .unwrap_or(&"Unknown".to_owned())
-                    .to_owned();
+                let (artist, title) = get_artist_title(t);
                 format!("{:>2}: {} - {}", i, artist, title)
             })
             .collect::<Vec<_>>()
@@ -283,8 +309,8 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     // Respond
     let out_msg = match total {
         0 => "Queue is empty".to_owned(),
-        1 => format!("{} song in queue\n```{}```", 1, list),
-        n => format!("{} songs in queue\n```{}```", n, list),
+        1 => format!("{} track in queue\n```{}```", 1, list),
+        n => format!("{} tracks in queue\n```{}```", n, list),
     };
     check_msg(msg.reply(&ctx.http, out_msg).await);
 
@@ -323,18 +349,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                     return Ok(());
                 }
             };
-            let artist = track
-                .metadata()
-                .artist
-                .as_ref()
-                .unwrap_or(&"Unknown".to_owned())
-                .to_owned();
-            let title = track
-                .metadata()
-                .title
-                .as_ref()
-                .unwrap_or(&"Unknown".to_owned())
-                .to_owned();
+            let (artist, title) = get_artist_title(track);
 
             // Remove requested track
             queue.modify_queue(|q| {

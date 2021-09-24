@@ -37,15 +37,18 @@ pub struct TrackEndNotifier {
 #[async_trait]
 impl VoiceEventHandler for TrackEndNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        if !self.call.lock().await.queue().is_empty() {
-            return None;
+        {
+            let handler = self.call.lock().await;
+            if !handler.queue().is_empty() {
+                return None;
+            }
+            check_msg(
+                self.chan_id
+                    .say(&self.http, &format!("Queue finished"))
+                    .await,
+            );
         }
         set_leave_timer(self.call.clone()).await;
-        check_msg(
-            self.chan_id
-                .say(&self.http, &format!("Queue finished"))
-                .await,
-        );
 
         None
     }
