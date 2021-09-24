@@ -20,3 +20,6 @@ features = ["client", "standard_framework", "voice", "rustls_backend"]
 [dependencies.tokio]
 version = "1.12"
 features = ["macros", "rt-multi-thread", "signal"]
+
+[dependencies.url]
+version = "2.2"

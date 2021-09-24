@@ -6,6 +6,7 @@ use std::{sync::Arc, time::Duration};
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
 
 pub struct TrackStartNotifier {
+    pub artist: String,
     pub title: String,
     pub chan_id: ChannelId,
     pub http: Arc<Http>,
@@ -16,7 +17,10 @@ impl VoiceEventHandler for TrackStartNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
         check_msg(
             self.chan_id
-                .say(&self.http, &format!("Playing {}", self.title))
+                .say(
+                    &self.http,
+                    &format!("Playing {} - {}", self.artist, self.title),
+                )
                 .await,
         );
         None

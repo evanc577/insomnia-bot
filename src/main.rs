@@ -94,36 +94,20 @@ async fn join(ctx: &Context, msg: &Message) -> Option<Arc<Mutex<songbird::Call>>
 
 #[command]
 #[only_in(guilds)]
-async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let url = match args.single::<String>() {
-        Ok(url) => url,
-        Err(_) => {
-            check_msg(
-                msg.channel_id
-                    .say(&ctx.http, "Must provide a URL to a video or audio")
-                    .await,
-            );
-
-            return Ok(());
-        }
+async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    // Create source
+    let arg_message = args.message();
+    let source = if let Ok(url) = url::Url::parse(arg_message) {
+        // Source is url, call ytdl directly
+        Restartable::ytdl(url.as_str().to_owned(), true).await
+    } else {
+        // Otherwise search ytdl
+        Restartable::ytdl_search(arg_message, true).await
     };
-
-    if !url.starts_with("http") {
-        check_msg(
-            msg.channel_id
-                .say(&ctx.http, "Must provide a valid URL")
-                .await,
-        );
-
-        return Ok(());
-    }
-
-    // Here, we use lazy restartable sources to make sure that we don't pay
-    // for decoding, playback on tracks which aren't actually live yet.
-    let source = match Restartable::ytdl(url, true).await {
-        Ok(source) => source,
-        Err(why) => {
-            println!("Err starting source: {:?}", why);
+    let source = match source {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Error starting source: {:?}", e);
             check_msg(msg.channel_id.say(&ctx.http, "Error sourcing ffmpeg").await);
             return Ok(());
         }
@@ -133,6 +117,7 @@ async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let metadata = input.metadata.clone();
     let (track, track_handle) = songbird::tracks::create_player(input);
     let title = metadata.title.unwrap_or("Unknown".into());
+    let artist = metadata.artist.unwrap_or("Unknown".into());
 
     if let Some(handler_lock) = join(ctx, msg).await {
         let mut handler = handler_lock.lock().await;
@@ -155,6 +140,7 @@ async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             .add_event(
                 Event::Track(TrackEvent::Play),
                 TrackStartNotifier {
+                    artist: artist.clone(),
                     title: title.clone(),
                     chan_id: msg.channel_id,
                     http: ctx.http.clone(),
@@ -165,8 +151,13 @@ async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         handler.enqueue(track);
 
         let play_msg = match handler.queue().current_queue().len() {
-            1 => format!("Playing {}", title),
-            _ => format!("Added {}\nSongs in queue: {}", title, handler.queue().len()),
+            1 => format!("Playing {} - {}", artist, title),
+            _ => format!(
+                "Added {} - {}\nSongs in queue: {}",
+                artist,
+                title,
+                handler.queue().len()
+            ),
         };
         check_msg(msg.channel_id.say(&ctx.http, play_msg).await);
     }
