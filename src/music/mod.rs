@@ -1,7 +1,9 @@
 mod events;
+mod sponsorblock;
 
 use crate::msg::{check_msg, format_track};
 use events::{TrackEndNotifier, TrackStartNotifier};
+use sponsorblock::get_skips;
 
 use serenity::{
     client::Context,
@@ -127,6 +129,9 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let input: input::Input = source.into();
     let (track, track_handle) = songbird::tracks::create_player(input);
+    if let Some(u) = &track_handle.metadata().source_url {
+        // get_skips(&u).await;
+    }
 
     if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
         let mut handler = handler_lock.lock().await;
