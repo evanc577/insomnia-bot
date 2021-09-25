@@ -1,30 +1,24 @@
 mod events;
 
 use crate::msg::check_msg;
-use events::TrackEndNotifier;
-use events::TrackStartNotifier;
+use events::{TrackEndNotifier, TrackStartNotifier};
 
-use serenity::model::id::UserId;
 use serenity::{
     client::Context,
     framework::standard::{
-        CommandGroup,
-        HelpOptions,
         help_commands,
-        Args, CommandResult,
         macros::{command, group, help},
+        Args, CommandGroup, CommandResult, HelpOptions,
     },
-    model::channel::Message,
+    model::{channel::Message, id::UserId},
     prelude::*,
 };
-use songbird::tracks::PlayMode;
 use songbird::{
     input::{self, restartable::Restartable},
-    tracks::TrackHandle,
+    tracks::{PlayMode, TrackHandle},
     Event, TrackEvent,
 };
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 #[group]
 #[commands(play, skip, stop, pause, list, remove)]
@@ -33,6 +27,7 @@ pub struct Music;
 #[help]
 #[individual_command_tip = ""]
 #[strikethrough_commands_tip_in_guild = ""]
+#[max_levenshtein_distance(1)]
 async fn my_help(
     context: &Context,
     msg: &Message,
@@ -104,7 +99,8 @@ fn get_artist_title(track: &TrackHandle) -> (String, String) {
 
 #[command]
 #[only_in(guilds)]
-#[description = "Play a song"]
+#[description = "Play a track via YouTube. If no argument is given, will resume the paused track."]
+#[usage = "[url | search_query]"]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // If no arguments, resume current track
     if args.is_empty() {
@@ -206,6 +202,8 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
+#[description = "Pause the currently playing track."]
+#[usage = ""]
 async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
@@ -231,6 +229,8 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
+#[description = "Skip the currently playing track."]
+#[usage = ""]
 async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
         let handler = handler_lock.lock().await;
@@ -266,8 +266,11 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
-#[aliases("ls")]
+#[aliases("ls", "queue")]
+#[description = "List all tracks in queue."]
+#[usage = "[track_number]"]
 async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    const NUM_TRACKS: usize = 25;
     // Parse arguments
     let arg = match args.single::<String>() {
         Ok(a) => a,
@@ -287,12 +290,12 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let start = if let Some(i) = start {
             i
         } else {
-            std::cmp::max(1, queue_total.saturating_sub(10))
+            std::cmp::max(1, queue_total.saturating_sub(NUM_TRACKS))
         };
 
         let list = queue
             .iter()
-            .zip(start..start + 10)
+            .zip(start..start + NUM_TRACKS)
             .map(|(t, i)| {
                 let (artist, title) = get_artist_title(t);
                 format!("{:>2}: {} - {}", i, artist, title)
@@ -320,6 +323,8 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 #[aliases("rm")]
+#[description = "Remove a track from the queue."]
+#[usage = "track_number"]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     // Parse arguments
     let arg = match args.single::<String>() {
@@ -354,9 +359,8 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             // Remove requested track
             queue.modify_queue(|q| {
-                match q.remove(i) {
-                    Some(t) => t.stop().unwrap_or(()),
-                    None => (),
+                if let Some(t) = q.remove(i) {
+                    t.stop().unwrap_or(())
                 };
             });
 

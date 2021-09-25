@@ -1,7 +1,11 @@
+mod config;
 mod msg;
 mod music;
 
-use crate::music::{MUSIC_GROUP, MY_HELP};
+use crate::{
+    config::{Config, CONFIG_FILE},
+    music::{MUSIC_GROUP, MY_HELP},
+};
 
 use serenity::{
     async_trait,
@@ -10,7 +14,6 @@ use serenity::{
     model::gateway::Ready,
 };
 use songbird::SerenityInit;
-use std::env;
 
 struct Handler;
 
@@ -21,20 +24,23 @@ impl EventHandler for Handler {
     }
 }
 
-
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
-
     // Configure the client with your Discord bot token in the environment.
-    let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
+    let config = match Config::read_config() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("Error reading {}: {}", CONFIG_FILE, e);
+            std::process::exit(1);
+        }
+    };
 
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("~"))
+        .configure(|c| c.prefix(&config.prefix))
         .help(&MY_HELP)
         .group(&MUSIC_GROUP);
 
-    let mut client = Client::builder(&token)
+    let mut client = Client::builder(&config.token)
         .event_handler(Handler)
         .framework(framework)
         .register_songbird()
@@ -46,4 +52,3 @@ async fn main() {
         .await
         .map_err(|why| println!("Client ended: {:?}", why));
 }
-

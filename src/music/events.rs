@@ -50,7 +50,7 @@ impl VoiceEventHandler for TrackEndNotifier {
             }
             check_msg(
                 self.chan_id
-                    .say(&self.http, &format!("Queue finished"))
+                    .say(&self.http, "Queue finished")
                     .await,
             );
         }
