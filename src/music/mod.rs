@@ -1,6 +1,6 @@
 mod events;
 
-use crate::msg::check_msg;
+use crate::msg::{check_msg, format_track};
 use events::{TrackEndNotifier, TrackStartNotifier};
 
 use serenity::{
@@ -15,7 +15,7 @@ use serenity::{
 };
 use songbird::{
     input::{self, restartable::Restartable},
-    tracks::{PlayMode, TrackHandle},
+    tracks::PlayMode,
     Event, TrackEvent,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -80,23 +80,6 @@ async fn join_or_get(
     handler_lock
 }
 
-fn get_artist_title(track: &TrackHandle) -> (String, String) {
-    let artist = track
-        .metadata()
-        .artist
-        .as_ref()
-        .unwrap_or(&"Unknown".to_owned())
-        .to_owned();
-    let title = track
-        .metadata()
-        .title
-        .as_ref()
-        .unwrap_or(&"Unknown".to_owned())
-        .to_owned();
-
-    (artist, title)
-}
-
 #[command]
 #[only_in(guilds)]
 #[description = "Play a track via YouTube. If no argument is given, will resume the paused track."]
@@ -114,10 +97,9 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                         return Ok(());
                     }
                 }
-                let (artist, title) = get_artist_title(&track);
                 let _ = track.play();
                 check_msg(
-                    msg.reply(&ctx.http, format!("Resuming {} - {}", artist, title))
+                    msg.reply(&ctx.http, format!("Resuming {}", format_track(&track, true)))
                         .await,
                 );
             }
@@ -145,7 +127,6 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let input: input::Input = source.into();
     let (track, track_handle) = songbird::tracks::create_player(input);
-    let (artist, title) = get_artist_title(&track_handle);
 
     if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
         let mut handler = handler_lock.lock().await;
@@ -168,8 +149,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             .add_event(
                 Event::Track(TrackEvent::Play),
                 TrackStartNotifier {
-                    artist: artist.clone(),
-                    title: title.clone(),
+                    name: format_track(&track_handle, true),
                     chan_id: msg.channel_id,
                     http: ctx.http.clone(),
                 },
@@ -186,11 +166,10 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
 
         let play_msg = match handler.queue().current_queue().len() {
-            1 => format!("Playing {} - {}", artist, title),
+            1 => format!("Playing {}", format_track(&track_handle, true)),
             _ => format!(
-                "Added {} - {}\nSongs in queue: {}",
-                artist,
-                title,
+                "Added {}\nTracks in queue: {}",
+                format_track(&track_handle, true),
                 queue.len()
             ),
         };
@@ -215,10 +194,9 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
                     return Ok(());
                 }
             }
-            let (artist, title) = get_artist_title(&track);
             let _ = track.pause();
             check_msg(
-                msg.reply(&ctx.http, format!("Paused {} - {}", artist, title))
+                msg.reply(&ctx.http, format!("Paused {}", format_track(&track, true)))
                     .await,
             );
         }
@@ -236,10 +214,9 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
-            let (artist, title) = get_artist_title(&track);
             let _ = track.stop();
             check_msg(
-                msg.reply(&ctx.http, format!("Skipped {} - {}", artist, title))
+                msg.reply(&ctx.http, format!("Skipped {}", format_track(&track, true)))
                     .await,
             );
         }
@@ -297,12 +274,10 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             .iter()
             .zip(start..start + NUM_TRACKS)
             .map(|(t, i)| {
-                let (artist, title) = get_artist_title(t);
-                format!("{:>2}: {} - {}", i, artist, title)
+                format!("{:>2}: {}", i, format_track(&t, false))
             })
             .collect::<Vec<_>>()
-            .join("\n")
-            .replace("`", "");
+            .join("\n");
 
         (queue_total, list)
     } else {
@@ -355,7 +330,6 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                     return Ok(());
                 }
             };
-            let (artist, title) = get_artist_title(track);
 
             // Remove requested track
             queue.modify_queue(|q| {
@@ -366,7 +340,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             // Respond
             check_msg(
-                msg.reply(&ctx.http, format!("Removed {} - {}", artist, title))
+                msg.reply(&ctx.http, format!("Removed {}", format_track(&track, true)))
                     .await,
             );
         }
