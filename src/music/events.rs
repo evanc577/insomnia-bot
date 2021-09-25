@@ -1,4 +1,4 @@
-use crate::check_msg;
+use crate::music::check_msg;
 
 use serenity::{async_trait, http::Http, model::prelude::ChannelId, prelude::*};
 use std::{sync::Arc, time::Duration};
@@ -39,7 +39,13 @@ impl VoiceEventHandler for TrackEndNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
         {
             let handler = self.call.lock().await;
+            let queue = handler.queue();
             if !handler.queue().is_empty() {
+                // Make the next song in queue playable to reduce delay
+                if queue.len() > 1 {
+                    let next_track = &queue.current_queue()[1];
+                    let _ = next_track.make_playable();
+                }
                 return None;
             }
             check_msg(
@@ -57,7 +63,7 @@ impl VoiceEventHandler for TrackEndNotifier {
 async fn set_leave_timer(call: Arc<Mutex<songbird::Call>>) {
     let mut handle = call.lock().await;
     handle.add_global_event(
-        Event::Delayed(Duration::from_secs(5)),
+        Event::Delayed(Duration::from_secs(600)),
         ChannelIdleLeaver { call: call.clone() },
     );
 }
