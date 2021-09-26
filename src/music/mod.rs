@@ -1,10 +1,13 @@
 mod events;
-mod sponsorblock;
 mod loudness;
+mod sponsorblock;
 
-use crate::msg::{PlayUpdate, format_track, send_embed, send_error_embed, send_playback_update_embed};
-use self::loudness::get_loudness;
 use self::events::{TrackEndNotifier, TrackStartNotifier};
+use self::loudness::get_loudness;
+use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
+use crate::msg::{
+    format_track, send_embed, send_error_embed, send_playback_update_embed, PlayUpdate,
+};
 
 use if_chain::if_chain;
 use serenity::{
@@ -22,11 +25,7 @@ use songbird::{
     tracks::PlayMode,
     Event, TrackEvent,
 };
-use std::{
-    collections::HashSet,
-    sync::Arc,
-};
-
+use std::{collections::HashSet, sync::Arc};
 
 #[group]
 #[commands(play, skip, stop, pause, list, remove)]
@@ -44,7 +43,10 @@ async fn my_help(
     groups: &[&'static CommandGroup],
     owners: HashSet<UserId>,
 ) -> CommandResult {
-    let _ = help_commands::with_embeds(context, msg, args, help_options, groups, owners).await;
+    let mut options = help_options.clone();
+    options.embed_success_colour = *EMBED_COLOR;
+    options.embed_error_colour = *EMBED_ERROR_COLOR;
+    let _ = help_commands::with_embeds(context, msg, args, &options, groups, owners).await;
     Ok(())
 }
 

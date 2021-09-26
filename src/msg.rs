@@ -2,8 +2,10 @@ use std::fmt::Display;
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
-use serenity::{builder::CreateEmbed, http::Http, model::id::ChannelId, utils::Color};
+use serenity::{builder::CreateEmbed, http::Http, model::id::ChannelId};
 use songbird::tracks::TrackHandle;
+
+use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 
 pub fn format_track(track: &TrackHandle, format: bool) -> String {
     let artist = track
@@ -40,7 +42,7 @@ pub async fn send_error_embed(http: &Http, channel_id: ChannelId, message: &str)
             m.embed(|e| {
                 e.title("Error");
                 e.description(message);
-                e.color(Color::from_rgb(0xff, 0x00, 0x00));
+                e.color(*EMBED_ERROR_COLOR);
                 e
             })
         })
@@ -89,7 +91,7 @@ impl PlayUpdate {
 impl Display for PlayUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match *self {
-            Self::Add(_) => "Added",
+            Self::Add(_) => "Queued",
             Self::Play => "Playing",
             Self::Pause => "Paused",
             Self::Resume => "Resumed",
@@ -121,6 +123,7 @@ pub async fn send_playback_update_embed(
                 if update.detailed() {
                     add_details(e, track, update);
                 }
+                e.color(*EMBED_COLOR);
                 e
             })
         })
