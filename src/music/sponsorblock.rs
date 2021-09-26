@@ -2,21 +2,16 @@
 #![allow(unused_variables)]
 
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-static CLIENT: Lazy<Mutex<reqwest::Client>> = Lazy::new(|| {
-    let client = reqwest::Client::builder().use_rustls_tls().build().unwrap();
-    Mutex::new(client)
-});
+static CLIENT: Lazy<reqwest::Client> =
+    Lazy::new(|| reqwest::Client::builder().use_rustls_tls().build().unwrap());
 
-static YT_ID_RE: Lazy<Mutex<Regex>> = Lazy::new(|| {
-    let re = Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap();
-    Mutex::new(re)
-});
+static YT_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap());
 
 pub async fn get_skips(url: &str) -> Vec<(Duration, Duration)> {
     vec![]
@@ -28,14 +23,13 @@ struct Segments {
 }
 
 async fn get_id(url: &str) -> Option<&str> {
-    Some(YT_ID_RE.lock().await.captures(url)?.get(1)?.as_str())
+    Some(YT_ID_RE.captures(url)?.get(1)?.as_str())
 }
 
 async fn get_segments(id: &str) -> Option<Vec<Segments>> {
     const URL: &str = "https://sponsor.ajay.app/";
 
-    let client = CLIENT.lock().await;
-    let resp = client
+    let resp = CLIENT
         .get(URL)
         .query(&["category", "sponsor"])
         .query(&["category", "selfpromo"])
