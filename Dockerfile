@@ -4,7 +4,9 @@
 FROM rust:latest AS builder
 
 WORKDIR /insomnia_bot
-COPY ./ .
+COPY src/ ./src
+COPY Cargo.toml .
+COPY Cargo.lock .
 RUN cargo build --release
 
 
