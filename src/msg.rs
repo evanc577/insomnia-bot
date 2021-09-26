@@ -60,7 +60,6 @@ pub async fn send_embed(http: &Http, channel_id: ChannelId, message: &str) {
         .await;
 }
 
-#[allow(dead_code)]
 pub enum PlayUpdate {
     Add(usize),
     Play,
@@ -102,23 +101,26 @@ impl Display for PlayUpdate {
     }
 }
 
-static SEP_SPAN: Lazy<Span> = Lazy::new(|| Span::Text(" ".into()));
-
 pub async fn send_playback_update_embed(
     http: &Http,
     channel_id: ChannelId,
     track: &TrackHandle,
     update: PlayUpdate,
 ) {
+    // Generate title
+    let title_span = Span::Text(update.to_string());
+    let title_block = Block::Paragraph(vec![title_span]);
+    let title_text = generate_markdown(vec![title_block]);
+
     // Generate description
-    let update_span = Span::Text(update.to_string());
-    let track_span = Span::Strong(vec![format_track_link(track)]);
-    let description_block = Block::Paragraph(vec![update_span, SEP_SPAN.clone(), track_span]);
+    let description_span = Span::Strong(vec![format_track_link(track)]);
+    let description_block = Block::Paragraph(vec![description_span]);
     let description_text = generate_markdown(vec![description_block]);
 
     let _ = channel_id
         .send_message(http, |m| {
             m.embed(|e| {
+                e.title(title_text);
                 e.description(description_text);
                 if update.detailed() {
                     add_details(e, track, update);

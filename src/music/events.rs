@@ -14,7 +14,6 @@ pub struct TrackStartNotifier {
 impl VoiceEventHandler for TrackStartNotifier {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
         if let EventContext::Track(&[(state, track)]) = ctx {
-            dbg!(&state);
             let update = if state.position < Duration::from_secs(1) {
                 PlayUpdate::Play
             } else {
