@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Evan Chang <evanc577@gmail.com>"]
 edition = "2018"
 
+[profile.release]
+lto = true
+
 [dependencies]
 approx = "0.5"
 if_chain = "1.0"

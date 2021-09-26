@@ -14,6 +14,7 @@ use serenity::{
     model::gateway::Ready,
 };
 use songbird::SerenityInit;
+use tokio::signal::unix::{signal, SignalKind};
 
 struct Handler;
 
@@ -23,6 +24,7 @@ impl EventHandler for Handler {
         println!("{} is connected!", ready.user.name);
     }
 }
+
 
 #[tokio::main]
 async fn main() {
@@ -46,6 +48,27 @@ async fn main() {
         .register_songbird()
         .await
         .expect("Err creating client");
+
+    // Register signal handlers
+    {
+        // SIGTERM
+        let mut stream = signal(SignalKind::terminate()).expect("Error creating SIGTERM handler");
+        let shard_manager = client.shard_manager.clone();
+        tokio::spawn(async move {
+            stream.recv().await;
+            println!("Received SIGTERM, exiting");
+            shard_manager.lock().await.shutdown_all().await;
+        });
+
+        // SIGINT
+        let mut stream = signal(SignalKind::interrupt()).expect("Error creating SIGINT handler");
+        let shard_manager = client.shard_manager.clone();
+        tokio::spawn(async move {
+            stream.recv().await;
+            println!("Received SIGINT, exiting");
+            shard_manager.lock().await.shutdown_all().await;
+        });
+    }
 
     let _ = client
         .start()
