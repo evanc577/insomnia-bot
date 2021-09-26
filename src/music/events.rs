@@ -1,4 +1,4 @@
-use crate::music::check_msg;
+use crate::msg::{send_playback_update_embed, PlayUpdate};
 
 use serenity::{async_trait, http::Http, model::prelude::*, prelude::*};
 use std::{sync::Arc, time::Duration};
@@ -6,19 +6,23 @@ use std::{sync::Arc, time::Duration};
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
 
 pub struct TrackStartNotifier {
-    pub name: String,
     pub chan_id: ChannelId,
     pub http: Arc<Http>,
 }
 
 #[async_trait]
 impl VoiceEventHandler for TrackStartNotifier {
-    async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        check_msg(
-            self.chan_id
-                .say(&self.http, &format!("Playing {}", self.name))
-                .await,
-        );
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(&[(state, track)]) = ctx {
+            dbg!(&state);
+            let update = if state.position < Duration::from_secs(1) {
+                PlayUpdate::Play
+            } else {
+                PlayUpdate::Resume
+            };
+            send_playback_update_embed(&self.http, self.chan_id, &track, update).await;
+        }
+
         None
     }
 }
@@ -34,28 +38,25 @@ pub struct TrackEndNotifier {
 #[async_trait]
 impl VoiceEventHandler for TrackEndNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        {
-            let ctx = self.ctx.lock().await;
-            let manager = songbird::get(&ctx)
-                .await
-                .expect("Songbird Voice client placed in at initialization.")
-                .clone();
-            if let Some(handler_lock) = manager.get(self.guild_id) {
-                let handler = handler_lock.lock().await;
-                let queue = handler.queue();
-                if !handler.queue().is_empty() {
-                    // Make the next song in queue playable to reduce delay
-                    if queue.len() > 1 {
-                        let next_track = &queue.current_queue()[1];
-                        let _ = next_track.make_playable();
-                    }
-                    return None;
+        let ctx = self.ctx.lock().await;
+        let manager = songbird::get(&ctx)
+            .await
+            .expect("Songbird Voice client placed in at initialization.")
+            .clone();
+        if let Some(handler_lock) = manager.get(self.guild_id) {
+            let handler = handler_lock.lock().await;
+            let queue = handler.queue();
+            if !handler.queue().is_empty() {
+                // Make the next song in queue playable to reduce delay
+                if queue.len() > 1 {
+                    let next_track = &queue.current_queue()[1];
+                    let _ = next_track.make_playable();
                 }
-                check_msg(self.chan_id.say(&self.http, "Queue finished").await);
-                drop(handler);
-
-                set_leave_timer(handler_lock).await;
+                return None;
             }
+            drop(handler);
+
+            set_leave_timer(handler_lock).await;
         }
 
         None
