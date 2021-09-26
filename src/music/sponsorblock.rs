@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -11,12 +14,12 @@ static CLIENT: Lazy<Mutex<reqwest::Client>> = Lazy::new(|| {
 });
 
 static YT_ID_RE: Lazy<Mutex<Regex>> = Lazy::new(|| {
-    let re = Regex::new(r"https:\/\/www\.youtube\.com\/watch\?v=([\w\-]+)").unwrap();
+    let re = Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap();
     Mutex::new(re)
 });
 
-pub async fn get_skips(url: &str) -> (Option<Duration>, Option<Duration>) {
-    (None, None)
+pub async fn get_skips(url: &str) -> Vec<(Duration, Duration)> {
+    vec![]
 }
 
 #[derive(Debug, Deserialize)]

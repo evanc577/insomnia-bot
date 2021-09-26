@@ -1,6 +1,6 @@
 use crate::music::check_msg;
 
-use serenity::{async_trait, http::Http, model::prelude::ChannelId, prelude::*};
+use serenity::{async_trait, http::Http, model::prelude::*, prelude::*};
 use std::{sync::Arc, time::Duration};
 
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
@@ -16,10 +16,7 @@ impl VoiceEventHandler for TrackStartNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
         check_msg(
             self.chan_id
-                .say(
-                    &self.http,
-                    &format!("Playing {}", self.name),
-                )
+                .say(&self.http, &format!("Playing {}", self.name))
                 .await,
         );
         None
@@ -28,8 +25,9 @@ impl VoiceEventHandler for TrackStartNotifier {
 
 /// Sets a global event which will leave the voice channel after while
 pub struct TrackEndNotifier {
-    pub call: Arc<Mutex<songbird::Call>>,
+    pub ctx: Arc<Mutex<Context>>,
     pub chan_id: ChannelId,
+    pub guild_id: GuildId,
     pub http: Arc<Http>,
 }
 
@@ -37,23 +35,28 @@ pub struct TrackEndNotifier {
 impl VoiceEventHandler for TrackEndNotifier {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
         {
-            let handler = self.call.lock().await;
-            let queue = handler.queue();
-            if !handler.queue().is_empty() {
-                // Make the next song in queue playable to reduce delay
-                if queue.len() > 1 {
-                    let next_track = &queue.current_queue()[1];
-                    let _ = next_track.make_playable();
+            let ctx = self.ctx.lock().await;
+            let manager = songbird::get(&ctx)
+                .await
+                .expect("Songbird Voice client placed in at initialization.")
+                .clone();
+            if let Some(handler_lock) = manager.get(self.guild_id) {
+                let handler = handler_lock.lock().await;
+                let queue = handler.queue();
+                if !handler.queue().is_empty() {
+                    // Make the next song in queue playable to reduce delay
+                    if queue.len() > 1 {
+                        let next_track = &queue.current_queue()[1];
+                        let _ = next_track.make_playable();
+                    }
+                    return None;
                 }
-                return None;
+                check_msg(self.chan_id.say(&self.http, "Queue finished").await);
+                drop(handler);
+
+                set_leave_timer(handler_lock).await;
             }
-            check_msg(
-                self.chan_id
-                    .say(&self.http, "Queue finished")
-                    .await,
-            );
         }
-        set_leave_timer(self.call.clone()).await;
 
         None
     }
@@ -62,7 +65,7 @@ impl VoiceEventHandler for TrackEndNotifier {
 async fn set_leave_timer(call: Arc<Mutex<songbird::Call>>) {
     let mut handle = call.lock().await;
     handle.add_global_event(
-        Event::Delayed(Duration::from_secs(600)),
+        Event::Delayed(Duration::from_secs(10)),
         ChannelIdleLeaver { call: call.clone() },
     );
 }

@@ -1,10 +1,12 @@
 mod events;
 mod sponsorblock;
+mod loudness;
 
 use crate::msg::{check_msg, format_track};
-use events::{TrackEndNotifier, TrackStartNotifier};
-use sponsorblock::get_skips;
+use self::loudness::get_loudness;
+use self::events::{TrackEndNotifier, TrackStartNotifier};
 
+use if_chain::if_chain;
 use serenity::{
     client::Context,
     framework::standard::{
@@ -20,7 +22,11 @@ use songbird::{
     tracks::PlayMode,
     Event, TrackEvent,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+};
+
 
 #[group]
 #[commands(play, skip, stop, pause, list, remove)]
@@ -101,8 +107,11 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 }
                 let _ = track.play();
                 check_msg(
-                    msg.reply(&ctx.http, format!("Resuming {}", format_track(&track, true)))
-                        .await,
+                    msg.reply(
+                        &ctx.http,
+                        format!("Resuming {}", format_track(&track, true)),
+                    )
+                    .await,
                 );
             }
         }
@@ -128,38 +137,46 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     };
 
     let input: input::Input = source.into();
+    let volume = if_chain! {
+        if let Some(url) = &input.metadata.source_url;
+        if let Some(vol) = get_loudness(url).await;
+        then {
+            vol
+        } else {
+            1.0
+        }
+    };
     let (track, track_handle) = songbird::tracks::create_player(input);
-    if let Some(u) = &track_handle.metadata().source_url {
-        // get_skips(&u).await;
-    }
+    let _ = track_handle.set_volume(volume);
+
+    // Set TrackEndNotifier
+    track_handle
+        .add_event(
+            Event::Track(TrackEvent::End),
+            TrackEndNotifier {
+                ctx: Arc::new(Mutex::new(ctx.clone())),
+                chan_id: msg.channel_id,
+                guild_id: msg.guild(&ctx.cache).await.unwrap().id,
+                http: ctx.http.clone(),
+            },
+        )
+        .expect("Error adding TrackEndNotifier");
+
+    // Set TrackStartNotifier
+    track_handle
+        .add_event(
+            Event::Track(TrackEvent::Play),
+            TrackStartNotifier {
+                name: format_track(&track_handle, true),
+                chan_id: msg.channel_id,
+                http: ctx.http.clone(),
+            },
+        )
+        .expect("Error adding TrackStartNotifier");
 
     if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
         let mut handler = handler_lock.lock().await;
-
-        // Set TrackEndNotifier
         handler.remove_all_global_events();
-        track_handle
-            .add_event(
-                Event::Track(TrackEvent::End),
-                TrackEndNotifier {
-                    call: handler_lock.clone(),
-                    chan_id: msg.channel_id,
-                    http: ctx.http.clone(),
-                },
-            )
-            .expect("Error adding TrackEndNotifier");
-
-        // Set TrackStartNotifier
-        track_handle
-            .add_event(
-                Event::Track(TrackEvent::Play),
-                TrackStartNotifier {
-                    name: format_track(&track_handle, true),
-                    chan_id: msg.channel_id,
-                    http: ctx.http.clone(),
-                },
-            )
-            .expect("Error adding TrackStartNotifier");
 
         // Queue track
         handler.enqueue(track);
@@ -278,9 +295,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let list = queue
             .iter()
             .zip(start..start + NUM_TRACKS)
-            .map(|(t, i)| {
-                format!("{:>2}: {}", i, format_track(&t, false))
-            })
+            .map(|(t, i)| format!("{:>2}: {}", i, format_track(t, false)))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -345,7 +360,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             // Respond
             check_msg(
-                msg.reply(&ctx.http, format!("Removed {}", format_track(&track, true)))
+                msg.reply(&ctx.http, format!("Removed {}", format_track(track, true)))
                     .await,
             );
         }
