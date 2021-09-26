@@ -65,7 +65,7 @@ impl VoiceEventHandler for TrackEndNotifier {
 async fn set_leave_timer(call: Arc<Mutex<songbird::Call>>) {
     let mut handle = call.lock().await;
     handle.add_global_event(
-        Event::Delayed(Duration::from_secs(10)),
+        Event::Delayed(Duration::from_secs(600)),
         ChannelIdleLeaver { call: call.clone() },
     );
 }

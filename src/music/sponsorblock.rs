@@ -7,8 +7,13 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-static CLIENT: Lazy<reqwest::Client> =
-    Lazy::new(|| reqwest::Client::builder().use_rustls_tls().build().unwrap());
+static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+});
 
 static YT_ID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap());

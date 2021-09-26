@@ -1,9 +1,16 @@
+use std::time::Duration;
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-static CLIENT: Lazy<reqwest::Client> =
-    Lazy::new(|| reqwest::Client::builder().use_rustls_tls().build().unwrap());
+static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+});
 
 static JSON_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"<script.*?ytInitialPlayerResponse.*?(\{.*\}).*</script").unwrap());
@@ -52,7 +59,7 @@ async fn query_youtube_db(url: &str) -> Option<f32> {
     };
 
     // Parse JSON
-    let resp: YTInitialPlayerResponse = serde_json::from_str(json_str).unwrap();
+    let resp: YTInitialPlayerResponse = serde_json::from_str(json_str).ok()?;
 
     Some(resp.player_config.audio_config.loudness_db)
 }
