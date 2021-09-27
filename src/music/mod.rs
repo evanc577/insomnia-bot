@@ -177,7 +177,9 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         .add_event(
             Event::Track(TrackEvent::Play),
             TrackStartNotifier {
+                ctx: Arc::new(Mutex::new(ctx.clone())),
                 chan_id: msg.channel_id,
+                guild_id: msg.guild(&ctx.cache).await.unwrap().id,
                 http: ctx.http.clone(),
             },
         )
@@ -197,7 +199,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
 
         let update = match handler.queue().current_queue().len() {
-            1 => PlayUpdate::Play,
+            1 => PlayUpdate::Play(queue.len()),
             _ => PlayUpdate::Add(queue.len()),
         };
         send_msg(

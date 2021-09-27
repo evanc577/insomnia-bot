@@ -8,10 +8,10 @@ use songbird::tracks::TrackHandle;
 use crate::config::EMBED_COLOR;
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum PlayUpdate {
     Add(usize),
-    Play,
+    Play(usize),
     Pause,
     Resume,
     Skip,
@@ -20,13 +20,13 @@ pub enum PlayUpdate {
 
 impl PlayUpdate {
     fn detailed(&self) -> bool {
-        matches!(self, Self::Add(_) | Self::Play)
+        matches!(self, Self::Play(_))
     }
 
     fn queue_size(&self) -> Option<usize> {
         match self {
             Self::Add(n) => Some(*n),
-            Self::Play => Some(1),
+            Self::Play(n) => Some(*n),
             _ => None,
         }
     }
@@ -36,7 +36,7 @@ impl Display for PlayUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match *self {
             Self::Add(_) => "Queued",
-            Self::Play => "Playing",
+            Self::Play(_) => "Playing",
             Self::Pause => "Paused",
             Self::Resume => "Resumed",
             Self::Skip => "Skipped",

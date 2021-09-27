@@ -7,16 +7,29 @@ use std::{sync::Arc, time::Duration};
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
 
 pub struct TrackStartNotifier {
+    pub ctx: Arc<Mutex<Context>>,
     pub chan_id: ChannelId,
+    pub guild_id: GuildId,
     pub http: Arc<Http>,
 }
 
 #[async_trait]
 impl VoiceEventHandler for TrackStartNotifier {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        let guild_ctx = self.ctx.lock().await;
+        let manager = songbird::get(&guild_ctx)
+            .await
+            .expect("Songbird Voice client placed in at initialization.")
+            .clone();
         if let EventContext::Track(&[(state, track)]) = ctx {
             let update = if state.position < Duration::from_secs(1) {
-                PlayUpdate::Play
+                let queue_len = if let Some(handler_lock) = manager.get(self.guild_id) {
+                    let handler = handler_lock.lock().await;
+                    handler.queue().len()
+                } else {
+                    1
+                };
+                PlayUpdate::Play(queue_len)
             } else {
                 PlayUpdate::Resume
             };
