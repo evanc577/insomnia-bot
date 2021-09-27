@@ -6,7 +6,7 @@ use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 pub enum SendMessage<'a> {
     Normal(&'a str),
     Error(&'a str),
-    Custom(Box<dyn Fn(&mut CreateEmbed) + Sync + Send + 'a>),
+    Custom(Box<dyn FnOnce(&mut CreateEmbed) + Send + 'a>),
 }
 
 pub async fn send_msg(http: &Http, channel_id: ChannelId, message: SendMessage<'_>) {

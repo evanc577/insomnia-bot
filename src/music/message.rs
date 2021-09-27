@@ -49,7 +49,7 @@ impl Display for PlayUpdate {
 pub fn format_update(
     track: &TrackHandle,
     update: PlayUpdate,
-) -> Box<dyn Fn(&mut CreateEmbed) + Sync + Send + '_> {
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + '_> {
     Box::new(move |e| {
         // Generate title
         let title_span = Span::Text(update.to_string());
