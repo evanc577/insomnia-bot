@@ -25,7 +25,6 @@ impl EventHandler for Handler {
     }
 }
 
-
 #[tokio::main]
 async fn main() {
     // Configure the client with your Discord bot token in the environment.
@@ -38,7 +37,11 @@ async fn main() {
     };
 
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix(&config.prefix))
+        .configure(|c| {
+            c.prefix(&config.prefix);
+            c.case_insensitivity(true);
+            c
+        })
         .help(&MUSIC_HELP)
         .group(&MUSIC_GROUP);
 
