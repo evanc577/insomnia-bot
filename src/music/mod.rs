@@ -7,7 +7,7 @@ use self::events::{TrackEndNotifier, TrackStartNotifier};
 use self::loudness::get_loudness;
 use self::message::{format_update, PlayUpdate};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
-use crate::message::{format_track, send_msg, SendMessage};
+use crate::message::{send_msg, SendMessage};
 
 use if_chain::if_chain;
 use serenity::{
@@ -22,7 +22,7 @@ use serenity::{
 };
 use songbird::{
     input::{self, restartable::Restartable},
-    tracks::PlayMode,
+    tracks::{PlayMode, TrackHandle},
     Event, TrackEvent,
 };
 use std::{collections::HashSet, sync::Arc};
@@ -203,7 +203,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         send_msg(
             &ctx.http,
             msg.channel_id,
-            SendMessage::Custom(format_update(track_handle.clone(), update)),
+            SendMessage::Custom(format_update(&track_handle, update)),
         )
         .await;
     }
@@ -235,7 +235,7 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
-                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Pause)),
+                SendMessage::Custom(format_update(&track, PlayUpdate::Pause)),
             )
             .await;
         }
@@ -256,7 +256,7 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
-                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Skip)),
+                SendMessage::Custom(format_update(&track, PlayUpdate::Skip)),
             )
             .await;
             if let Some(next) = handler.queue().current() {
@@ -341,6 +341,23 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     Ok(())
 }
 
+fn format_track(track: &TrackHandle, format: bool) -> String {
+    let title = track.metadata().title.clone().unwrap_or("Unknown".into());
+
+    if format {
+        format!(
+            "**{}**",
+            title
+                .replace("*", "\\*")
+                .replace("_", "\\_")
+                .replace("~", "\\~")
+                .replace("`", "")
+        )
+    } else {
+        title
+    }
+}
+
 #[command]
 #[only_in(guilds)]
 #[aliases("rm")]
@@ -403,7 +420,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
-                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Remove)),
+                SendMessage::Custom(format_update(&track, PlayUpdate::Remove)),
             )
             .await;
         }

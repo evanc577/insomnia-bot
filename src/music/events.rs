@@ -23,7 +23,7 @@ impl VoiceEventHandler for TrackStartNotifier {
             send_msg(
                 &self.http,
                 self.chan_id,
-                SendMessage::Custom(format_update(track.clone(), update)),
+                SendMessage::Custom(format_update(&track, update)),
             )
             .await;
         }

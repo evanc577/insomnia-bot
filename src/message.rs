@@ -1,31 +1,12 @@
-use std::sync::Arc;
-
 use serenity::{builder::CreateEmbed, http::Http, model::id::ChannelId};
-use songbird::tracks::TrackHandle;
 
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 
-pub fn format_track(track: &TrackHandle, format: bool) -> String {
-    let title = track.metadata().title.clone().unwrap_or("Unknown".into());
-
-    if format {
-        format!(
-            "**{}**",
-            title
-                .replace("*", "\\*")
-                .replace("_", "\\_")
-                .replace("~", "\\~")
-                .replace("`", "")
-        )
-    } else {
-        title
-    }
-}
 
 pub enum SendMessage<'a> {
     Normal(&'a str),
     Error(&'a str),
-    Custom(Arc<dyn Fn(&mut CreateEmbed) + Sync + Send>),
+    Custom(Box<dyn Fn(&mut CreateEmbed) + Sync + Send + 'a>),
 }
 
 pub async fn send_msg(http: &Http, channel_id: ChannelId, message: SendMessage<'_>) {

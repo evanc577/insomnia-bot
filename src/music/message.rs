@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc};
+use std::fmt::Display;
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
@@ -51,24 +51,24 @@ impl Display for PlayUpdate {
 }
 
 pub fn format_update(
-    track: TrackHandle,
+    track: &TrackHandle,
     update: PlayUpdate,
-) -> Arc<dyn Fn(&mut CreateEmbed) + Sync + Send> {
-    Arc::new(move |e| {
+) -> Box<dyn Fn(&mut CreateEmbed) + Sync + Send + '_> {
+    Box::new(move |e| {
         // Generate title
         let title_span = Span::Text(update.to_string());
         let title_block = Block::Paragraph(vec![title_span]);
         let title_text = generate_markdown(vec![title_block]);
 
         // Generate description
-        let description_span = Span::Strong(vec![format_track_link(&track)]);
+        let description_span = Span::Strong(vec![format_track_link(track)]);
         let description_block = Block::Paragraph(vec![description_span]);
         let description_text = generate_markdown(vec![description_block]);
 
         e.title(title_text);
         e.description(description_text);
         if update.detailed() {
-            add_details(e, &track, update);
+            add_details(e, track, update);
         }
         e.color(*EMBED_COLOR);
     })
