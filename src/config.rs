@@ -32,7 +32,13 @@ impl Error for ConfigError {}
 
 impl Config {
     pub fn get_config() -> Result<Self, Box<dyn Error>> {
-        let mut config = Self::read_config()?;
+        let mut config = match Self::read_config() {
+            Ok(c) => c,
+            Err(_) => Config {
+                token: "".into(),
+                prefix: default_prefix(),
+            }
+        };
 
         if let Ok(token) = env::var("DISCORD_TOKEN") {
             config.token = token;
