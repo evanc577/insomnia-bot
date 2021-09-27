@@ -35,7 +35,7 @@ pub struct Music;
 #[individual_command_tip = ""]
 #[strikethrough_commands_tip_in_guild = ""]
 #[max_levenshtein_distance(1)]
-async fn my_help(
+async fn music_help(
     context: &Context,
     msg: &Message,
     args: Args,

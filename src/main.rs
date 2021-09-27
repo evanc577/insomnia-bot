@@ -4,7 +4,7 @@ mod music;
 
 use crate::{
     config::{Config, CONFIG_FILE},
-    music::{MUSIC_GROUP, MY_HELP},
+    music::{MUSIC_GROUP, MUSIC_HELP},
 };
 
 use serenity::{
@@ -29,7 +29,7 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     // Configure the client with your Discord bot token in the environment.
-    let config = match Config::read_config() {
+    let config = match Config::get_config() {
         Ok(c) => c,
         Err(e) => {
             println!("Error reading {}: {}", CONFIG_FILE, e);
@@ -39,7 +39,7 @@ async fn main() {
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix(&config.prefix))
-        .help(&MY_HELP)
+        .help(&MUSIC_HELP)
         .group(&MUSIC_GROUP);
 
     let mut client = Client::builder(&config.token)
