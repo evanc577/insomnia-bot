@@ -1,5 +1,5 @@
 mod config;
-mod msg;
+mod message;
 mod music;
 
 use crate::{

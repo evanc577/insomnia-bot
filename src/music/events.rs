@@ -1,4 +1,5 @@
-use crate::msg::{send_playback_update_embed, PlayUpdate};
+use crate::message::{send_msg, SendMessage};
+use super::message::{format_update, PlayUpdate};
 
 use serenity::{async_trait, http::Http, model::prelude::*, prelude::*};
 use std::{sync::Arc, time::Duration};
@@ -19,7 +20,12 @@ impl VoiceEventHandler for TrackStartNotifier {
             } else {
                 PlayUpdate::Resume
             };
-            send_playback_update_embed(&self.http, self.chan_id, &track, update).await;
+            send_msg(
+                &self.http,
+                self.chan_id,
+                SendMessage::Custom(format_update(track.clone(), update)),
+            )
+            .await;
         }
 
         None

@@ -1,65 +1,14 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
-use serenity::{builder::CreateEmbed, http::Http, model::id::ChannelId};
+use serenity::builder::CreateEmbed;
 use songbird::tracks::TrackHandle;
 
-use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
+use crate::config::EMBED_COLOR;
 
-pub fn format_track(track: &TrackHandle, format: bool) -> String {
-    let artist = track
-        .metadata()
-        .artist
-        .as_ref()
-        .unwrap_or(&"Unknown".to_owned())
-        .to_owned();
-    let title = track
-        .metadata()
-        .title
-        .as_ref()
-        .unwrap_or(&"Unknown".to_owned())
-        .to_owned();
 
-    let raw = format!("{} - {}", artist, title);
-
-    if format {
-        format!(
-            "**{}**",
-            raw.replace("*", "\\*")
-                .replace("_", "\\_")
-                .replace("~", "\\~")
-                .replace("`", "")
-        )
-    } else {
-        raw
-    }
-}
-
-pub async fn send_error_embed(http: &Http, channel_id: ChannelId, message: &str) {
-    let _ = channel_id
-        .send_message(http, |m| {
-            m.embed(|e| {
-                e.title("Error");
-                e.description(message);
-                e.color(*EMBED_ERROR_COLOR);
-                e
-            })
-        })
-        .await;
-}
-
-pub async fn send_embed(http: &Http, channel_id: ChannelId, message: &str) {
-    let _ = channel_id
-        .send_message(http, |m| {
-            m.embed(|e| {
-                e.description(message);
-                e
-            })
-        })
-        .await;
-}
-
+#[derive(Clone, Copy)]
 pub enum PlayUpdate {
     Add(usize),
     Play,
@@ -101,35 +50,28 @@ impl Display for PlayUpdate {
     }
 }
 
-pub async fn send_playback_update_embed(
-    http: &Http,
-    channel_id: ChannelId,
-    track: &TrackHandle,
+pub fn format_update(
+    track: TrackHandle,
     update: PlayUpdate,
-) {
-    // Generate title
-    let title_span = Span::Text(update.to_string());
-    let title_block = Block::Paragraph(vec![title_span]);
-    let title_text = generate_markdown(vec![title_block]);
+) -> Arc<dyn Fn(&mut CreateEmbed) + Sync + Send> {
+    Arc::new(move |e| {
+        // Generate title
+        let title_span = Span::Text(update.to_string());
+        let title_block = Block::Paragraph(vec![title_span]);
+        let title_text = generate_markdown(vec![title_block]);
 
-    // Generate description
-    let description_span = Span::Strong(vec![format_track_link(track)]);
-    let description_block = Block::Paragraph(vec![description_span]);
-    let description_text = generate_markdown(vec![description_block]);
+        // Generate description
+        let description_span = Span::Strong(vec![format_track_link(&track)]);
+        let description_block = Block::Paragraph(vec![description_span]);
+        let description_text = generate_markdown(vec![description_block]);
 
-    let _ = channel_id
-        .send_message(http, |m| {
-            m.embed(|e| {
-                e.title(title_text);
-                e.description(description_text);
-                if update.detailed() {
-                    add_details(e, track, update);
-                }
-                e.color(*EMBED_COLOR);
-                e
-            })
-        })
-        .await;
+        e.title(title_text);
+        e.description(description_text);
+        if update.detailed() {
+            add_details(e, &track, update);
+        }
+        e.color(*EMBED_COLOR);
+    })
 }
 
 fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate) {
@@ -142,8 +84,7 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
     // Artist
     let artist_name_text =
         generate_markdown(vec![Block::Paragraph(vec![ARTIST_NAME_SPAN.clone()])]);
-    let artist_value_text =
-        generate_markdown(vec![Block::Paragraph(vec![format_artist(track)])]);
+    let artist_value_text = generate_markdown(vec![Block::Paragraph(vec![format_artist(track)])]);
     fields.push((artist_name_text, artist_value_text, true));
 
     // Duration
@@ -174,11 +115,7 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
 }
 
 fn format_track_link(track: &TrackHandle) -> Span {
-    let title = track
-        .metadata()
-        .title
-        .clone()
-        .unwrap_or("Unknown title".into());
+    let title = track.metadata().title.clone().unwrap_or("Unknown".into());
     let span = match track.metadata().source_url.clone() {
         Some(u) => Span::Link(title, u, None),
         None => Span::Text(title),
@@ -187,11 +124,7 @@ fn format_track_link(track: &TrackHandle) -> Span {
 }
 
 fn format_artist(track: &TrackHandle) -> Span {
-    let artist = track
-        .metadata()
-        .artist
-        .clone()
-        .unwrap_or("Unknown title".into());
+    let artist = track.metadata().artist.clone().unwrap_or("Unknown".into());
     Span::Text(artist)
 }
 

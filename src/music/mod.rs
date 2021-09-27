@@ -1,13 +1,13 @@
 mod events;
 mod loudness;
+mod message;
 mod sponsorblock;
 
 use self::events::{TrackEndNotifier, TrackStartNotifier};
 use self::loudness::get_loudness;
+use self::message::{format_update, PlayUpdate};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
-use crate::msg::{
-    format_track, send_embed, send_error_embed, send_playback_update_embed, PlayUpdate,
-};
+use crate::message::{format_track, send_msg, SendMessage};
 
 use if_chain::if_chain;
 use serenity::{
@@ -66,7 +66,12 @@ async fn join_or_get(
     let connect_to = match channel_id {
         Some(channel) => channel,
         None => {
-            send_error_embed(&ctx.http, msg.channel_id, "Not in a voice channel").await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error("Not in a voice channel"),
+            )
+            .await;
             return None;
         }
     };
@@ -103,7 +108,12 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             if let Some(track) = queue.current() {
                 if let Ok(info) = track.get_info().await {
                     if info.playing != PlayMode::Pause {
-                        send_error_embed(&ctx.http, msg.channel_id, "No paused track").await;
+                        send_msg(
+                            &ctx.http,
+                            msg.channel_id,
+                            SendMessage::Error("No paused track"),
+                        )
+                        .await;
                         return Ok(());
                     }
                 }
@@ -126,7 +136,12 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let source = match source {
         Ok(s) => s,
         Err(_) => {
-            send_error_embed(&ctx.http, msg.channel_id, "Error loading source").await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error("Error loading source"),
+            )
+            .await;
             return Ok(());
         }
     };
@@ -185,7 +200,12 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             1 => PlayUpdate::Play,
             _ => PlayUpdate::Add(queue.len()),
         };
-        send_playback_update_embed(&ctx.http, msg.channel_id, &track_handle, update).await;
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Custom(format_update(track_handle.clone(), update)),
+        )
+        .await;
     }
 
     Ok(())
@@ -202,12 +222,22 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         if let Some(track) = queue.current() {
             if let Ok(info) = track.get_info().await {
                 if info.playing != PlayMode::Play {
-                    send_error_embed(&ctx.http, msg.channel_id, "No playing track").await;
+                    send_msg(
+                        &ctx.http,
+                        msg.channel_id,
+                        SendMessage::Error("No playing track"),
+                    )
+                    .await;
                     return Ok(());
                 }
             }
             let _ = track.pause();
-            send_playback_update_embed(&ctx.http, msg.channel_id, &track, PlayUpdate::Pause).await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Pause)),
+            )
+            .await;
         }
     }
 
@@ -223,7 +253,12 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         let handler = handler_lock.lock().await;
         if let Some(track) = handler.queue().dequeue(0) {
             let _ = track.stop();
-            send_playback_update_embed(&ctx.http, msg.channel_id, &track, PlayUpdate::Skip).await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Skip)),
+            )
+            .await;
             if let Some(next) = handler.queue().current() {
                 let _ = next.play();
             }
@@ -243,7 +278,12 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             let _ = track.stop();
         }
         let _ = queue.stop();
-        send_embed(&ctx.http, msg.channel_id, "Playback stopped").await;
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Normal("Playback stopped"),
+        )
+        .await;
     }
 
     Ok(())
@@ -296,7 +336,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         1 => format!("{} track in queue\n```{}```", 1, list),
         n => format!("{} tracks in queue\n```{}```", n, list),
     };
-    send_embed(&ctx.http, msg.channel_id, &out_msg).await;
+    send_msg(&ctx.http, msg.channel_id, SendMessage::Normal(&out_msg)).await;
 
     Ok(())
 }
@@ -311,14 +351,24 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let arg = match args.single::<String>() {
         Ok(a) => a,
         Err(_) => {
-            send_error_embed(&ctx.http, msg.channel_id, "Missing 1 argument").await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error("Missing 1 argument"),
+            )
+            .await;
             return Ok(());
         }
     };
     let idx = arg.to_lowercase().parse::<usize>();
     if let Ok(i) = idx {
         if i == 0 {
-            send_error_embed(&ctx.http, msg.channel_id, "Invalid index").await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error("Invalid index"),
+            )
+            .await;
             return Ok(());
         }
         let i = i - 1;
@@ -332,7 +382,12 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             let track = match current_queue.get(i) {
                 Some(t) => t,
                 None => {
-                    send_error_embed(&ctx.http, msg.channel_id, "Invalid index").await;
+                    send_msg(
+                        &ctx.http,
+                        msg.channel_id,
+                        SendMessage::Error("Invalid index"),
+                    )
+                    .await;
                     return Ok(());
                 }
             };
@@ -345,10 +400,20 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             });
 
             // Respond
-            send_playback_update_embed(&ctx.http, msg.channel_id, &track, PlayUpdate::Remove).await;
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Custom(format_update(track.clone(), PlayUpdate::Remove)),
+            )
+            .await;
         }
     } else {
-        send_error_embed(&ctx.http, msg.channel_id, "Invalid argument").await;
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Error("Invalid argument"),
+        )
+        .await;
     }
 
     Ok(())
