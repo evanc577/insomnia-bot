@@ -342,7 +342,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 }
 
 fn format_track(track: &TrackHandle, format: bool) -> String {
-    let title = track.metadata().title.clone().unwrap_or("Unknown".into());
+    let title = track.metadata().title.clone().unwrap_or_else(|| "Unknown".into());
 
     if format {
         format!(
@@ -420,7 +420,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
-                SendMessage::Custom(format_update(&track, PlayUpdate::Remove)),
+                SendMessage::Custom(format_update(track, PlayUpdate::Remove)),
             )
             .await;
         }

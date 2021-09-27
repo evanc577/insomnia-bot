@@ -20,11 +20,7 @@ pub enum PlayUpdate {
 
 impl PlayUpdate {
     fn detailed(&self) -> bool {
-        match self {
-            Self::Add(_) => true,
-            Self::Play => true,
-            _ => false,
-        }
+        matches!(self, Self::Add(_) | Self::Play)
     }
 
     fn queue_size(&self) -> Option<usize> {
@@ -115,7 +111,7 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
 }
 
 fn format_track_link(track: &TrackHandle) -> Span {
-    let title = track.metadata().title.clone().unwrap_or("Unknown".into());
+    let title = track.metadata().title.clone().unwrap_or_else(|| "Unknown".into());
     let span = match track.metadata().source_url.clone() {
         Some(u) => Span::Link(title, u, None),
         None => Span::Text(title),
@@ -124,7 +120,7 @@ fn format_track_link(track: &TrackHandle) -> Span {
 }
 
 fn format_artist(track: &TrackHandle) -> Span {
-    let artist = track.metadata().artist.clone().unwrap_or("Unknown".into());
+    let artist = track.metadata().artist.clone().unwrap_or_else(|| "Unknown".into());
     Span::Text(artist)
 }
 
