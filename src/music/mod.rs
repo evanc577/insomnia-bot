@@ -2,18 +2,17 @@ mod events;
 mod loudness;
 mod message;
 mod sponsorblock;
+mod voice;
 
 use self::events::{TrackEndNotifier, TrackStartNotifier};
 use self::loudness::get_loudness;
 use self::message::{format_update, PlayUpdate};
+use self::voice::{CanGetVoice, CanJoinVoice};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
-use crate::error::InsomniaError;
 use crate::message::{send_msg, SendMessage};
 
-use anyhow::Result;
 use if_chain::if_chain;
 use serenity::{
-    async_trait,
     client::Context,
     framework::standard::{
         help_commands,
@@ -24,7 +23,6 @@ use serenity::{
     prelude::*,
 };
 use songbird::{
-    Call,
     input::{self, restartable::Restartable},
     tracks::{PlayMode, TrackHandle},
     Event, TrackEvent,
@@ -54,58 +52,6 @@ async fn music_help(
     Ok(())
 }
 
-#[async_trait]
-trait CanJoinVoice {
-    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
-}
-
-#[async_trait]
-impl CanJoinVoice for Message {
-    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
-        let manager = songbird::get(ctx)
-            .await
-            .ok_or(InsomniaError::JoinVoice)?
-            .clone();
-
-        let guild = self.guild(&ctx.cache).await.ok_or(InsomniaError::JoinVoice)?;
-        let guild_id = self.guild_id.ok_or(InsomniaError::JoinVoice)?;
-        let channel_id = guild
-            .voice_states
-            .get(&self.author.id)
-            .and_then(|voice_state| voice_state.channel_id)
-            .ok_or(InsomniaError::JoinVoice)?;
-
-        let (handler_lock, error) = manager.join(guild_id, channel_id).await;
-        if error.is_err() {
-            return Err(InsomniaError::JoinVoice.into());
-        }
-
-        {
-            let mut handler = handler_lock.lock().await;
-            let _ = handler.deafen(true).await;
-        }
-        Ok(handler_lock)
-    }
-}
-
-#[async_trait]
-trait CanGetVoice {
-    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
-}
-
-#[async_trait]
-impl CanGetVoice for Message {
-    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
-        let manager = songbird::get(ctx)
-            .await
-            .ok_or(InsomniaError::GetVoice)?
-            ;
-        match self.guild_id {
-            Some(id) => Ok(manager.get(id).ok_or(InsomniaError::GetVoice)?),
-            None => return Err(InsomniaError::GetVoice.into()),
-        }
-    }
-}
 
 #[command]
 #[only_in(guilds)]
