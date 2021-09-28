@@ -57,7 +57,7 @@ impl CanGetVoice for Message {
             .ok_or(InsomniaError::GetVoice)?
             ;
         match self.guild_id {
-            Some(id) => Ok(manager.get(id).ok_or(InsomniaError::GetVoice)?),
+            Some(id) => Ok(manager.get_or_insert(id.into())),
             None => return Err(InsomniaError::GetVoice.into()),
         }
     }

@@ -1,6 +1,7 @@
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use serenity::{framework::standard::CommandResult, utils::Color};
+use serenity::utils::Color;
 use std::{env, fs};
 
 use crate::error::InsomniaError;
@@ -22,7 +23,7 @@ fn default_prefix() -> String {
 }
 
 impl Config {
-    pub fn get_config() -> CommandResult<Self> {
+    pub fn get_config() -> Result<Self> {
         let mut config = match Self::read_config() {
             Ok(c) => c,
             Err(_) => Config {
@@ -45,7 +46,7 @@ impl Config {
         }
     }
 
-    fn read_config() -> CommandResult<Self> {
+    fn read_config() -> Result<Self> {
         let contents = fs::read_to_string(CONFIG_FILE)?;
         Ok(toml::from_str(&contents)?)
     }
