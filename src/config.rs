@@ -1,7 +1,9 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use serenity::utils::Color;
-use std::{env, error::Error, fmt::Display, fs};
+use serenity::{framework::standard::CommandResult, utils::Color};
+use std::{env, fs};
+
+use crate::error::InsomniaError;
 
 pub static CONFIG_FILE: &str = "config.toml";
 pub static EMBED_COLOR: Lazy<Color> = Lazy::new(|| Color::from_rgb(0x10, 0x18, 0x20));
@@ -19,19 +21,8 @@ fn default_prefix() -> String {
     "~".into()
 }
 
-#[derive(Debug)]
-struct ConfigError {}
-
-impl Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Config error")
-    }
-}
-
-impl Error for ConfigError {}
-
 impl Config {
-    pub fn get_config() -> Result<Self, Box<dyn Error>> {
+    pub fn get_config() -> CommandResult<Self> {
         let mut config = match Self::read_config() {
             Ok(c) => c,
             Err(_) => Config {
@@ -47,14 +38,14 @@ impl Config {
             config.prefix = prefix;
         }
 
-        if config.token == "" {
-            Err(ConfigError {})?
+        if config.token.is_empty() {
+            Err(InsomniaError::ConfigToken.into())
         } else {
             Ok(config)
         }
     }
 
-    fn read_config() -> Result<Self, Box<dyn Error>> {
+    fn read_config() -> CommandResult<Self> {
         let contents = fs::read_to_string(CONFIG_FILE)?;
         Ok(toml::from_str(&contents)?)
     }

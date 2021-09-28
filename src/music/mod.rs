@@ -7,10 +7,13 @@ use self::events::{TrackEndNotifier, TrackStartNotifier};
 use self::loudness::get_loudness;
 use self::message::{format_update, PlayUpdate};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
+use crate::error::InsomniaError;
 use crate::message::{send_msg, SendMessage};
 
+use anyhow::Result;
 use if_chain::if_chain;
 use serenity::{
+    async_trait,
     client::Context,
     framework::standard::{
         help_commands,
@@ -21,6 +24,7 @@ use serenity::{
     prelude::*,
 };
 use songbird::{
+    Call,
     input::{self, restartable::Restartable},
     tracks::{PlayMode, TrackHandle},
     Event, TrackEvent,
@@ -50,49 +54,57 @@ async fn music_help(
     Ok(())
 }
 
-async fn join_or_get(
-    ctx: &Context,
-    msg: &Message,
-    join: bool,
-) -> Option<Arc<Mutex<songbird::Call>>> {
-    let guild = msg.guild(&ctx.cache).await.unwrap();
-    let guild_id = guild.id;
+#[async_trait]
+trait CanJoinVoice {
+    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
+}
 
-    let channel_id = guild
-        .voice_states
-        .get(&msg.author.id)
-        .and_then(|voice_state| voice_state.channel_id);
+#[async_trait]
+impl CanJoinVoice for Message {
+    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
+        let manager = songbird::get(ctx)
+            .await
+            .ok_or(InsomniaError::JoinVoice)?
+            .clone();
 
-    let connect_to = match channel_id {
-        Some(channel) => channel,
-        None => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error("Not in a voice channel"),
-            )
-            .await;
-            return None;
+        let guild = self.guild(&ctx.cache).await.ok_or(InsomniaError::JoinVoice)?;
+        let guild_id = self.guild_id.ok_or(InsomniaError::JoinVoice)?;
+        let channel_id = guild
+            .voice_states
+            .get(&self.author.id)
+            .and_then(|voice_state| voice_state.channel_id)
+            .ok_or(InsomniaError::JoinVoice)?;
+
+        let (handler_lock, error) = manager.join(guild_id, channel_id).await;
+        if error.is_err() {
+            return Err(InsomniaError::JoinVoice.into());
         }
-    };
 
-    let manager = songbird::get(ctx)
-        .await
-        .expect("Songbird Voice client placed in at initialization.")
-        .clone();
-
-    let handler_lock = if join {
-        let handler_lock = manager.join(guild_id, connect_to).await.0;
         {
             let mut handler = handler_lock.lock().await;
             let _ = handler.deafen(true).await;
         }
-        Some(handler_lock)
-    } else {
-        manager.get(guild_id)
-    };
+        Ok(handler_lock)
+    }
+}
 
-    handler_lock
+#[async_trait]
+trait CanGetVoice {
+    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
+}
+
+#[async_trait]
+impl CanGetVoice for Message {
+    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
+        let manager = songbird::get(ctx)
+            .await
+            .ok_or(InsomniaError::GetVoice)?
+            ;
+        match self.guild_id {
+            Some(id) => Ok(manager.get(id).ok_or(InsomniaError::GetVoice)?),
+            None => return Err(InsomniaError::GetVoice.into()),
+        }
+    }
 }
 
 #[command]
@@ -102,25 +114,14 @@ async fn join_or_get(
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // If no arguments, resume current track
     if args.is_empty() {
-        if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+        if let Ok(handler_lock) = msg.get_voice(ctx).await {
             let handler = handler_lock.lock().await;
             let queue = handler.queue();
             if let Some(track) = queue.current() {
-                if let Ok(info) = track.get_info().await {
-                    if info.playing != PlayMode::Pause {
-                        send_msg(
-                            &ctx.http,
-                            msg.channel_id,
-                            SendMessage::Error("No paused track"),
-                        )
-                        .await;
-                        return Ok(());
-                    }
-                }
                 let _ = track.play();
             }
-        }
 
+        }
         return Ok(());
     }
 
@@ -185,7 +186,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         )
         .expect("Error adding TrackStartNotifier");
 
-    if let Some(handler_lock) = join_or_get(ctx, msg, true).await {
+    if let Ok(handler_lock) = msg.join_voice(ctx).await {
         let mut handler = handler_lock.lock().await;
         handler.remove_all_global_events();
 
@@ -218,7 +219,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[description = "Pause the currently playing track."]
 #[usage = ""]
 async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+    if let Ok(handler_lock) = msg.join_voice(ctx).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
@@ -251,7 +252,7 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 #[description = "Skip the currently playing track."]
 #[usage = ""]
 async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+    if let Ok(handler_lock) = msg.get_voice(ctx).await {
         let handler = handler_lock.lock().await;
         if let Some(track) = handler.queue().dequeue(0) {
             let _ = track.stop();
@@ -273,7 +274,7 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+    if let Ok(handler_lock) = msg.get_voice(ctx).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
@@ -309,7 +310,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     };
 
     // Build output string
-    let (total, list) = if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+    let (total, list) = if let Ok(handler_lock) = msg.get_voice(ctx).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue().current_queue();
         let queue_total = queue.len();
@@ -344,7 +345,11 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 }
 
 fn format_track(track: &TrackHandle, format: bool) -> String {
-    let title = track.metadata().title.clone().unwrap_or_else(|| "Unknown".into());
+    let title = track
+        .metadata()
+        .title
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
 
     if format {
         format!(
@@ -392,7 +397,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
         let i = i - 1;
 
-        if let Some(handler_lock) = join_or_get(ctx, msg, false).await {
+        if let Ok(handler_lock) = msg.get_voice(ctx).await {
             let handler = handler_lock.lock().await;
             let queue = handler.queue();
 

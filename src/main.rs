@@ -1,6 +1,7 @@
 mod config;
 mod message;
 mod music;
+mod error;
 
 use crate::{
     config::{Config, CONFIG_FILE},
