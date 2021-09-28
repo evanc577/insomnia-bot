@@ -74,6 +74,13 @@ impl VoiceEventHandler for TrackEndNotifier {
             }
             drop(handler);
 
+            send_msg(
+                &self.http,
+                self.chan_id,
+                SendMessage::Normal("Queue ended"),
+            )
+            .await;
+
             set_leave_timer(handler_lock).await;
         }
 

@@ -2,6 +2,7 @@ mod events;
 mod loudness;
 mod message;
 mod sponsorblock;
+mod error;
 mod voice;
 
 use self::events::{TrackEndNotifier, TrackStartNotifier};
@@ -10,6 +11,7 @@ use self::message::{format_update, PlayUpdate};
 use self::voice::{CanGetVoice, CanJoinVoice};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::message::{send_msg, SendMessage};
+use crate::music::error::MusicError;
 
 use if_chain::if_chain;
 use serenity::{
@@ -52,22 +54,46 @@ async fn music_help(
     Ok(())
 }
 
-
 #[command]
 #[only_in(guilds)]
 #[description = "Play a track via YouTube. If no argument is given, will resume the paused track."]
 #[usage = "[url | search_query]"]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    // Only allow if user is in a voice channel
+    let handler_lock = match msg.get_voice(ctx).await {
+        Ok(h) => h,
+        Err(_) => {
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+            )
+            .await;
+            return Ok(());
+        }
+    };
+
     // If no arguments, resume current track
     if args.is_empty() {
-        if let Ok(handler_lock) = msg.get_voice(ctx).await {
+        if_chain! {
             let handler = handler_lock.lock().await;
             let queue = handler.queue();
-            if let Some(track) = queue.current() {
+            if let Some(track) = queue.current();
+            if let Ok(info) = track.get_info().await;
+            if info.playing == PlayMode::Pause;
+            then {
                 let _ = track.play();
+            } else {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NoPausedTrack.as_str()),
+                )
+                .await;
+                return Ok(());
             }
-
         }
+
         return Ok(());
     }
 
@@ -86,7 +112,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
-                SendMessage::Error("Error loading source"),
+                SendMessage::Error(MusicError::BadSource.as_str()),
             )
             .await;
             return Ok(());
@@ -155,6 +181,13 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             SendMessage::Custom(format_update(&track_handle, update)),
         )
         .await;
+    } else {
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+        )
+        .await;
     }
 
     Ok(())
@@ -174,7 +207,7 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
                     send_msg(
                         &ctx.http,
                         msg.channel_id,
-                        SendMessage::Error("No playing track"),
+                        SendMessage::Error(MusicError::NoPlayingTrack.as_str()),
                     )
                     .await;
                     return Ok(());
@@ -188,6 +221,13 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             )
             .await;
         }
+    } else {
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+        )
+        .await;
     }
 
     Ok(())
@@ -212,6 +252,13 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
                 let _ = next.play();
             }
         }
+    } else {
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+        )
+        .await;
     }
 
     Ok(())
@@ -227,10 +274,11 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
             let _ = track.stop();
         }
         let _ = queue.stop();
+    } else {
         send_msg(
             &ctx.http,
             msg.channel_id,
-            SendMessage::Normal("Playback stopped"),
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
     }
@@ -245,37 +293,45 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
 #[usage = "[track_number]"]
 async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     const NUM_TRACKS: usize = 25;
-    // Parse arguments
-    let arg = match args.single::<String>() {
-        Ok(a) => a,
-        Err(_) => "1".to_owned(),
-    };
-    let start = match arg.to_lowercase().as_str() {
-        "max" => None,
-        s => Some(s.parse::<usize>().unwrap_or(0)),
-    };
 
-    // Build output string
     let (total, list) = if let Ok(handler_lock) = msg.get_voice(ctx).await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue().current_queue();
         let queue_total = queue.len();
 
+        // Parse arguments
+        let arg = match args.single::<String>() {
+            Ok(a) => a,
+            Err(_) => "1".to_owned(),
+        };
+        let start = match arg.to_lowercase().as_str() {
+            "max" => None,
+            s => Some(s.parse::<usize>().unwrap_or(0)),
+        };
+
+        // Compute start index
         let start = if let Some(i) = start {
             i
         } else {
             std::cmp::max(1, queue_total.saturating_sub(NUM_TRACKS))
         };
 
+        // Build output string
         let list = queue
             .iter()
             .zip(start..start + NUM_TRACKS)
-            .map(|(t, i)| format!("{:>2}: {}", i, format_track(t, false)))
+            .map(|(t, i)| format!("{:>2}: {}", i, format_track(t)))
             .collect::<Vec<_>>()
             .join("\n");
 
         (queue_total, list)
     } else {
+        send_msg(
+            &ctx.http,
+            msg.channel_id,
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+        )
+        .await;
         return Ok(());
     };
 
@@ -290,25 +346,14 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     Ok(())
 }
 
-fn format_track(track: &TrackHandle, format: bool) -> String {
+fn format_track(track: &TrackHandle) -> String {
     let title = track
         .metadata()
         .title
         .clone()
         .unwrap_or_else(|| "Unknown".into());
 
-    if format {
-        format!(
-            "**{}**",
-            title
-                .replace("*", "\\*")
-                .replace("_", "\\_")
-                .replace("~", "\\~")
-                .replace("`", "")
-        )
-    } else {
-        title
-    }
+    title.replace("`", "")
 }
 
 #[command]
@@ -317,33 +362,33 @@ fn format_track(track: &TrackHandle, format: bool) -> String {
 #[description = "Remove a track from the queue."]
 #[usage = "track_number"]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    // Parse arguments
-    let arg = match args.single::<String>() {
-        Ok(a) => a,
-        Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error("Missing 1 argument"),
-            )
-            .await;
-            return Ok(());
-        }
-    };
-    let idx = arg.to_lowercase().parse::<usize>();
-    if let Ok(i) = idx {
-        if i == 0 {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error("Invalid index"),
-            )
-            .await;
-            return Ok(());
-        }
-        let i = i - 1;
+    if let Ok(handler_lock) = msg.get_voice(ctx).await {
+        // Parse arguments
+        let arg = match args.single::<String>() {
+            Ok(a) => a,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::BadArgument.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
+        let idx = arg.to_lowercase().parse::<usize>();
+        if let Ok(i) = idx {
+            if i == 0 {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::BadIndex.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+            let i = i - 1;
 
-        if let Ok(handler_lock) = msg.get_voice(ctx).await {
             let handler = handler_lock.lock().await;
             let queue = handler.queue();
 
@@ -355,7 +400,7 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                     send_msg(
                         &ctx.http,
                         msg.channel_id,
-                        SendMessage::Error("Invalid index"),
+                        SendMessage::Error(MusicError::BadIndex.as_str()),
                     )
                     .await;
                     return Ok(());
@@ -376,12 +421,19 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 SendMessage::Custom(format_update(track, PlayUpdate::Remove)),
             )
             .await;
+        } else {
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error(MusicError::BadArgument.as_str()),
+            )
+            .await;
         }
     } else {
         send_msg(
             &ctx.http,
             msg.channel_id,
-            SendMessage::Error("Invalid argument"),
+            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
     }
