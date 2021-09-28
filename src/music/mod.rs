@@ -96,7 +96,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let input: input::Input = source.into();
     let volume = if_chain! {
         if let Some(url) = &input.metadata.source_url;
-        if let Some(vol) = get_loudness(url).await;
+        if let Ok(vol) = get_loudness(url).await;
         then {
             vol
         } else {

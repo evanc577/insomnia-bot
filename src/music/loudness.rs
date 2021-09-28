@@ -1,8 +1,11 @@
 use std::time::Duration;
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
+
+use crate::error::InsomniaError;
 
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -17,13 +20,13 @@ static JSON_RE: Lazy<Regex> =
 
 static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://www\.youtube\.com").unwrap());
 
-pub async fn get_loudness(url: &str) -> Option<f32> {
+pub async fn get_loudness(url: &str) -> Result<f32> {
     if !URL_RE.is_match(url) {
-        return None;
+        return Err(InsomniaError::Loudness.into());
     }
 
     let loudness_db = query_youtube_db(url).await?;
-    Some(db_to_float(loudness_db))
+    Ok(db_to_float(loudness_db))
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,24 +47,24 @@ struct AudioConfig {
     loudness_db: f32,
 }
 
-async fn query_youtube_db(url: &str) -> Option<f32> {
+async fn query_youtube_db(url: &str) -> Result<f32> {
     // Query YouTube
     let text = {
-        let resp = CLIENT.get(url).send().await.ok()?.text().await.ok()?;
+        let resp = CLIENT.get(url).send().await?.text().await?;
         resp
     };
 
     // Extract JSON string
     let json_str = {
-        let caps = JSON_RE.captures(&text)?;
-        let m = caps.get(1)?;
+        let caps = JSON_RE.captures(&text).ok_or(InsomniaError::Loudness)?;
+        let m = caps.get(1).ok_or(InsomniaError::Loudness)?;
         m.as_str()
     };
 
     // Parse JSON
-    let resp: YTInitialPlayerResponse = serde_json::from_str(json_str).ok()?;
+    let resp: YTInitialPlayerResponse = serde_json::from_str(json_str)?;
 
-    Some(resp.player_config.audio_config.loudness_db)
+    Ok(resp.player_config.audio_config.loudness_db)
 }
 
 fn db_to_float(db: f32) -> f32 {
@@ -85,8 +88,8 @@ mod test {
     #[tokio::test]
     async fn check_db() {
         let result = query_youtube_db(URL).await;
-        assert!(result.is_some());
-        if let Some(x) = result {
+        assert!(result.is_ok());
+        if let Ok(x) = result {
             assert!(abs_diff_eq!(5.63, x, epsilon = 0.001));
         }
     }
