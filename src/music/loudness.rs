@@ -20,15 +20,6 @@ static JSON_RE: Lazy<Regex> =
 
 static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://www\.youtube\.com").unwrap());
 
-pub async fn get_loudness(url: &str) -> Result<f32> {
-    if !URL_RE.is_match(url) {
-        return Err(InsomniaError::Loudness.into());
-    }
-
-    let loudness_db = query_youtube_db(url).await?;
-    Ok(db_to_float(loudness_db))
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct YTInitialPlayerResponse {
@@ -45,6 +36,20 @@ struct PlayerConfig {
 #[serde(rename_all = "camelCase")]
 struct AudioConfig {
     loudness_db: f32,
+}
+
+
+pub async fn get_loudness(url: &str) -> f32 {
+    get_loudness_helper(url).await.unwrap_or(1.0)
+}
+
+async fn get_loudness_helper(url: &str) -> Result<f32> {
+    if !URL_RE.is_match(url) {
+        return Err(InsomniaError::Loudness.into());
+    }
+
+    let loudness_db = query_youtube_db(url).await?;
+    Ok(db_to_float(loudness_db))
 }
 
 async fn query_youtube_db(url: &str) -> Result<f32> {

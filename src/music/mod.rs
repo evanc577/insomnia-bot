@@ -120,15 +120,15 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     };
 
     let input: input::Input = source.into();
-    let volume = if_chain! {
-        if let Some(url) = &input.metadata.source_url;
-        if let Ok(vol) = get_loudness(url).await;
-        then {
-            vol
-        } else {
-            1.0
-        }
+
+    // Get volume
+    let volume = if let Some(url) = &input.metadata.source_url {
+        get_loudness(url).await
+    } else {
+        1.0
     };
+
+    // Create track
     let (track, track_handle) = songbird::tracks::create_player(input);
     let _ = track_handle.set_volume(volume);
 
