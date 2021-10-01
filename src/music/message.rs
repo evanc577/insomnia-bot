@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
@@ -11,7 +11,7 @@ use crate::config::EMBED_COLOR;
 #[derive(Clone, Copy, PartialEq)]
 pub enum PlayUpdate {
     Add(usize),
-    Play(usize),
+    Play(usize, Option<Duration>),
     Pause,
     Resume,
     Skip,
@@ -20,13 +20,20 @@ pub enum PlayUpdate {
 
 impl PlayUpdate {
     fn detailed(&self) -> bool {
-        matches!(self, Self::Play(_))
+        matches!(self, Self::Play(_, _))
     }
 
     fn queue_size(&self) -> Option<usize> {
         match self {
             Self::Add(n) => Some(*n),
-            Self::Play(n) => Some(*n),
+            Self::Play(n, _) => Some(*n),
+            _ => None,
+        }
+    }
+
+    fn sb_time(&self) -> Option<Duration> {
+        match self {
+            Self::Play(_, t) => *t,
             _ => None,
         }
     }
@@ -36,7 +43,7 @@ impl Display for PlayUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match *self {
             Self::Add(_) => "Queued",
-            Self::Play(_) => "Playing",
+            Self::Play(_, _) => "Playing",
             Self::Pause => "Paused",
             Self::Resume => "Resumed",
             Self::Skip => "Skipped",
@@ -87,7 +94,7 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
     let duration_name_text =
         generate_markdown(vec![Block::Paragraph(vec![DURATION_NAME_SPAN.clone()])]);
     let duration_value_text =
-        generate_markdown(vec![Block::Paragraph(vec![format_duration(track)])]);
+        generate_markdown(vec![Block::Paragraph(vec![format_track_duration(track, update.sb_time())])]);
     fields.push((duration_name_text, duration_value_text, true));
 
     // Thumbnail
@@ -124,14 +131,23 @@ fn format_artist(track: &TrackHandle) -> Span {
     Span::Text(artist)
 }
 
-fn format_duration(track: &TrackHandle) -> Span {
+fn format_track_duration(track: &TrackHandle, sb_time: Option<Duration>) -> Span {
     let duration = match track.metadata().duration {
         Some(d) => d,
         None => return Span::Text("Unknown".into()),
     };
 
+    let mut ret = format_duration(duration);
+    if let Some(t) = sb_time {
+        ret.push_str(&format!(" ({})", format_duration(duration - t)));
+    }
+
+    Span::Text(ret)
+}
+
+fn format_duration(t: Duration) -> String {
     // compute hours mins secs
-    let total_secs = duration.as_secs();
+    let total_secs = t.as_secs();
     let secs = total_secs % 60;
     let mins = total_secs / 60 % 60;
     let hours = total_secs / 60 / 60;
@@ -144,5 +160,5 @@ fn format_duration(track: &TrackHandle) -> Span {
         ret.push_str(&format!("{}:{:02}", mins, secs));
     }
 
-    Span::Text(ret)
+    ret
 }

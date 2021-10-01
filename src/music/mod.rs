@@ -1,17 +1,18 @@
+mod error;
 mod events;
 mod loudness;
 mod message;
 mod sponsorblock;
-mod error;
 mod voice;
 
-use self::events::{TrackEndNotifier, TrackStartNotifier};
+use self::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use self::loudness::get_loudness;
 use self::message::{format_update, PlayUpdate};
 use self::voice::{CanGetVoice, CanJoinVoice};
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::message::{send_msg, SendMessage};
 use crate::music::error::MusicError;
+use crate::music::sponsorblock::get_skips;
 
 use if_chain::if_chain;
 use serenity::{
@@ -99,12 +100,17 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     // Create source
     let arg_message = args.message();
+    let lazy = {
+        // Workaround for https://github.com/serenity-rs/songbird/issues/97
+        let handler = handler_lock.lock().await;
+        !handler.queue().is_empty()
+    };
     let source = if let Ok(url) = url::Url::parse(arg_message) {
         // Source is url, call ytdl directly
-        Restartable::ytdl(url.as_str().to_owned(), true).await
+        Restartable::ytdl(url.as_str().to_owned(), lazy).await
     } else {
         // Otherwise search ytdl
-        Restartable::ytdl_search(arg_message, true).await
+        Restartable::ytdl_search(arg_message, lazy).await
     };
     let source = match source {
         Ok(s) => s,
@@ -121,16 +127,33 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     let input: input::Input = source.into();
 
-    // Get volume
-    let volume = if let Some(url) = &input.metadata.source_url {
-        get_loudness(url).await
+    // Get volume and skips
+    let (volume, skips) = if let Some(url) = &input.metadata.source_url {
+        tokio::join!(get_loudness(url), get_skips(url))
     } else {
-        1.0
+        (1.0, vec![])
     };
 
     // Create track
     let (track, track_handle) = songbird::tracks::create_player(input);
     let _ = track_handle.set_volume(volume);
+
+    // Set TrackSegmentSkipper if skips exist
+    let sb_time = if let Some(segment) = skips.iter().next().cloned() {
+        let sb_time = skips.iter().map(|(a, b)| *b - *a).sum();
+        track_handle
+            .add_event(
+                Event::Delayed(segment.0),
+                TrackSegmentSkipper {
+                    segments: skips,
+                    idx: 0.into(),
+                },
+            )
+            .unwrap();
+        Some(sb_time)
+    } else {
+        None
+    };
 
     // Set TrackEndNotifier
     track_handle
@@ -154,6 +177,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 chan_id: msg.channel_id,
                 guild_id: msg.guild(&ctx.cache).await.unwrap().id,
                 http: ctx.http.clone(),
+                sb_time,
             },
         )
         .expect("Error adding TrackStartNotifier");
@@ -172,7 +196,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
 
         let update = match handler.queue().current_queue().len() {
-            1 => PlayUpdate::Play(queue.len()),
+            1 => PlayUpdate::Play(queue.len(), sb_time),
             _ => PlayUpdate::Add(queue.len()),
         };
         send_msg(

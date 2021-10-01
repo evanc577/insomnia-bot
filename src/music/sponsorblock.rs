@@ -79,6 +79,9 @@ fn postprocess_segments(mut segments: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
 
     let mut cur_segment = (None, None);
     for (start, end) in segments {
+        if start >= end {
+            continue;
+        }
         if let (Some(cur_start), Some(cur_end)) = cur_segment {
             if start > cur_end {
                 ret.push((cur_start, cur_end));

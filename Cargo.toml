@@ -23,7 +23,8 @@ version = "0.11"
 features = ["rustls-tls"]
 
 [dependencies.songbird]
-version = "0.2"
+# version = "0.2"
+git = "https://github.com/serenity-rs/songbird"
 features = ["builtin-queue"]
 
 [dependencies.serenity]

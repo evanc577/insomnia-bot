@@ -1,16 +1,60 @@
-use crate::message::{send_msg, SendMessage};
 use super::message::{format_update, PlayUpdate};
+use crate::message::{send_msg, SendMessage};
 
 use serenity::{async_trait, http::Http, model::prelude::*, prelude::*};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
+
+pub struct TrackSegmentSkipper {
+    pub segments: Vec<(Duration, Duration)>,
+    pub idx: AtomicUsize,
+}
+
+#[async_trait]
+impl VoiceEventHandler for TrackSegmentSkipper {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        let idx = self.idx.fetch_add(1, Ordering::SeqCst);
+        if idx < self.segments.len() {
+            if let EventContext::Track(&[(state, track)]) = ctx {
+                let (seek_from, seek_to) = self.segments[idx];
+
+                // Workaround for https://github.com/serenity-rs/songbird/issues/97
+                let diff = seek_from.saturating_sub(state.position);
+                if diff > Duration::from_secs(1) {
+                    // Too early? Delay again
+                    println!("{:?} too early!", diff);
+                    self.idx.store(idx, Ordering::SeqCst);
+                    return Some(Event::Delayed(diff));
+                }
+
+                // Skip to specified time
+                track.seek_time(seek_to).unwrap();
+
+                // If another skip exists, add an event
+                if idx + 1 < self.segments.len() {
+                    let next_segment = self.segments[idx + 1].0 - seek_to;
+                    return Some(Event::Delayed(next_segment));
+                }
+            }
+        }
+
+        None
+    }
+}
 
 pub struct TrackStartNotifier {
     pub ctx: Arc<Mutex<Context>>,
     pub chan_id: ChannelId,
     pub guild_id: GuildId,
     pub http: Arc<Http>,
+    pub sb_time: Option<Duration>,
 }
 
 #[async_trait]
@@ -29,7 +73,7 @@ impl VoiceEventHandler for TrackStartNotifier {
                 } else {
                     1
                 };
-                PlayUpdate::Play(queue_len)
+                PlayUpdate::Play(queue_len, self.sb_time)
             } else {
                 PlayUpdate::Resume
             };
@@ -74,12 +118,7 @@ impl VoiceEventHandler for TrackEndNotifier {
             }
             drop(handler);
 
-            send_msg(
-                &self.http,
-                self.chan_id,
-                SendMessage::Normal("Queue ended"),
-            )
-            .await;
+            send_msg(&self.http, self.chan_id, SendMessage::Normal("Queue ended")).await;
 
             set_leave_timer(handler_lock).await;
         }
