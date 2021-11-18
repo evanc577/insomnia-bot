@@ -5,11 +5,10 @@ FROM almalinux:8 AS builder
 
 # Install Rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-ENV PATH="/opt/gtk/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install Python
 RUN dnf install -y python3-devel
-ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install devel tools
 RUN dnf group install -y "Development Tools"
