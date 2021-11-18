@@ -35,7 +35,7 @@ use songbird::{
 use std::{collections::HashSet, sync::Arc};
 
 #[group]
-#[commands(play, music, skip, stop, pause, list, remove)]
+#[commands(play, song, video, skip, stop, pause, list, remove)]
 pub struct Music;
 
 #[help]
@@ -57,11 +57,16 @@ async fn music_help(
     Ok(())
 }
 
+enum Query<'a> {
+    Search(&'a str),
+    URL(&'a str),
+}
+
 async fn add_track(
     ctx: &Context,
     msg: &Message,
     handler_lock: Arc<Mutex<Call>>,
-    query: &str,
+    query: Query<'_>,
 ) -> CommandResult {
     // Create source
     let lazy = {
@@ -69,12 +74,9 @@ async fn add_track(
         let handler = handler_lock.lock().await;
         !handler.queue().is_empty()
     };
-    let source = if let Ok(url) = url::Url::parse(query) {
-        // Source is url, call ytdl directly
-        Restartable::ytdl(url.as_str().to_owned(), lazy).await
-    } else {
-        // Otherwise search ytdl
-        Restartable::ytdl_search(query, lazy).await
+    let source = match query {
+        Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
+        Query::URL(x) => Restartable::ytdl(x.to_owned(), lazy).await,
     };
     let source = match source {
         Ok(s) => s,
@@ -183,7 +185,7 @@ async fn add_track(
 
 #[command]
 #[only_in(guilds)]
-#[description = "Play a track via YouTube. If no argument is given, will resume the paused track."]
+#[description = "Play a song via YouTube Music. If a URL is given, play the URL. If no argument is given, resume the paused track."]
 #[usage = "[url | search_query]"]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
@@ -224,11 +226,20 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         return Ok(());
     }
 
-    let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-    let _ = add_track(ctx, msg, handler_lock, args.message()).await;
-    if let Ok(typing) = typing {
-        let _ = typing.stop();
+
+    if let Ok(url) = url::Url::parse(args.message()) {
+        // If URL is given, play URL
+        let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
+        if let Ok(typing) = typing {
+            let _ = typing.stop();
+        }
+    } else {
+        // Otherwise search YouTube Music
+        drop(handler_lock);
+        let _ = song(ctx, msg, args).await;
     }
+
 
     Ok(())
 }
@@ -237,7 +248,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[only_in(guilds)]
 #[description = "Play a song via YouTube Music."]
 #[usage = "[search_query]"]
-async fn music(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
     let handler_lock = match msg.get_voice(ctx).await {
         Ok(h) => h,
@@ -254,7 +265,7 @@ async fn music(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     if let Some(url) = youtube_music::yt_music_search(args.message().to_owned()).await {
         let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, handler_lock, &url).await;
+        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
         if let Ok(typing) = typing {
             let _ = typing.stop();
         }
@@ -266,6 +277,41 @@ async fn music(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         )
         .await;
         return Ok(());
+    }
+
+    Ok(())
+}
+
+#[command]
+#[only_in(guilds)]
+#[description = "Play an uploaded video's audio via YouTube."]
+#[usage = "[search_query]"]
+async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    // Only allow if user is in a voice channel
+    let handler_lock = match msg.get_voice(ctx).await {
+        Ok(h) => h,
+        Err(_) => {
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+            )
+            .await;
+            return Ok(());
+        }
+    };
+
+    let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+
+    if let Ok(url) = url::Url::parse(args.message()) {
+        // If URL is given, play URL
+        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
+    } else {
+        // Otherwise search YouTube Music
+        let _ = add_track(ctx, msg, handler_lock, Query::Search(args.message())).await;
+    }
+    if let Ok(typing) = typing {
+        let _ = typing.stop();
     }
 
     Ok(())
