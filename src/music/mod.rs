@@ -3,7 +3,7 @@ mod events;
 mod loudness;
 mod message;
 mod sponsorblock;
-mod voice;
+pub mod voice;
 mod youtube_music;
 
 use self::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
@@ -30,7 +30,7 @@ use serenity::{
 use songbird::{
     input::{self, restartable::Restartable},
     tracks::{PlayMode, TrackHandle},
-    Call, Event, TrackEvent,
+    Event, TrackEvent,
 };
 use std::{collections::HashSet, sync::Arc};
 
@@ -62,12 +62,20 @@ enum Query<'a> {
     URL(&'a str),
 }
 
-async fn add_track(
-    ctx: &Context,
-    msg: &Message,
-    handler_lock: Arc<Mutex<Call>>,
-    query: Query<'_>,
-) -> CommandResult {
+async fn add_track(ctx: &Context, msg: &Message, query: Query<'_>) -> CommandResult {
+    let handler_lock = match msg.get_voice(ctx).await {
+        Ok(h) => h,
+        Err(_) => {
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+            )
+            .await;
+            return Ok(());
+        }
+    };
+
     // Create source
     let lazy = {
         // Workaround for https://github.com/serenity-rs/songbird/issues/97
@@ -189,21 +197,35 @@ async fn add_track(
 #[usage = "[url | search_query]"]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
-    let handler_lock = match msg.get_voice(ctx).await {
-        Ok(h) => h,
-        Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-            )
-            .await;
-            return Ok(());
-        }
-    };
+    {
+        match msg.get_voice(ctx).await {
+            Ok(h) => h,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
+    }
 
-    // If no arguments, resume current track
     if args.is_empty() {
+        // If no arguments, resume current track
+        let handler_lock = match msg.get_voice(ctx).await {
+            Ok(h) => h,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
         if_chain! {
             let handler = handler_lock.lock().await;
             let queue = handler.queue();
@@ -224,22 +246,18 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
 
         return Ok(());
-    }
-
-
-    if let Ok(url) = url::Url::parse(args.message()) {
-        // If URL is given, play URL
-        let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
-        if let Ok(typing) = typing {
-            let _ = typing.stop();
-        }
     } else {
-        // Otherwise search YouTube Music
-        drop(handler_lock);
-        let _ = song(ctx, msg, args).await;
+        // Otherwise search/play the requested track
+        if let Ok(url) = url::Url::parse(args.message()) {
+            // If URL is given, play URL
+            let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+            let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+        } else {
+            // Otherwise search YouTube Music
+            // drop(handler_lock);
+            let _ = song(ctx, msg, args).await;
+        }
     }
-
 
     Ok(())
 }
@@ -250,25 +268,24 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[usage = "[search_query]"]
 async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
-    let handler_lock = match msg.get_voice(ctx).await {
-        Ok(h) => h,
-        Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-            )
-            .await;
-            return Ok(());
-        }
-    };
+    {
+        match msg.get_voice(ctx).await {
+            Ok(h) => h,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
+    }
 
     if let Some(url) = youtube_music::yt_music_search(args.message().to_owned()).await {
-        let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
-        if let Ok(typing) = typing {
-            let _ = typing.stop();
-        }
+        let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+        let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
     } else {
         send_msg(
             &ctx.http,
@@ -288,30 +305,29 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[usage = "[search_query]"]
 async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
-    let handler_lock = match msg.get_voice(ctx).await {
-        Ok(h) => h,
-        Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-            )
-            .await;
-            return Ok(());
-        }
-    };
+    {
+        match msg.get_voice(ctx).await {
+            Ok(h) => h,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
+    }
 
-    let typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+    let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
 
     if let Ok(url) = url::Url::parse(args.message()) {
         // If URL is given, play URL
-        let _ = add_track(ctx, msg, handler_lock, Query::URL(url.as_str())).await;
+        let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
     } else {
         // Otherwise search YouTube Music
-        let _ = add_track(ctx, msg, handler_lock, Query::Search(args.message())).await;
-    }
-    if let Ok(typing) = typing {
-        let _ = typing.stop();
+        let _ = add_track(ctx, msg, Query::Search(args.message())).await;
     }
 
     Ok(())

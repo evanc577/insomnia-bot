@@ -5,6 +5,7 @@ pub enum InsomniaError {
     ConfigToken,
     JoinVoice,
     GetVoice,
+    VoiceLock,
     Loudness,
 }
 
@@ -14,6 +15,7 @@ impl Display for InsomniaError {
             Self::ConfigToken => write!(f, "Error: no Discord token"),
             Self::JoinVoice => write!(f, "Error: could not join voice channel"),
             Self::GetVoice => write!(f, "Error: could not get voice channel"),
+            Self::VoiceLock => write!(f, "Error: could not get voice channel lock"),
             Self::Loudness => write!(f, "Error: could not get track loudness"),
         }
     }

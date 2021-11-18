@@ -1,11 +1,13 @@
 mod config;
+mod error;
 mod message;
 mod music;
-mod error;
+
+use std::collections::HashMap;
 
 use crate::{
     config::{Config, CONFIG_FILE},
-    music::{MUSIC_GROUP, MUSIC_HELP},
+    music::{voice::CallMutexMap, MUSIC_GROUP, MUSIC_HELP},
 };
 
 use serenity::{
@@ -52,6 +54,11 @@ async fn main() {
         .register_songbird()
         .await
         .expect("Err creating client");
+
+    {
+        let mut data = client.data.write().await;
+        data.insert::<CallMutexMap>(HashMap::new());
+    }
 
     // Register signal handlers
     {
