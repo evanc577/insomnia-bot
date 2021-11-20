@@ -6,12 +6,14 @@ mod sponsorblock;
 pub mod voice;
 mod youtube_loudness;
 mod youtube_music;
+mod youtube_playlist;
 
 use crate::music::queue::add_track;
 use crate::music::queue::Query;
 
 use self::message::{format_update, PlayUpdate};
 use self::voice::{CanGetVoice, CanJoinVoice};
+use self::youtube_playlist::add_youtube_playlist;
 
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::message::{send_msg, SendMessage};
@@ -112,9 +114,13 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     } else {
         // Otherwise search/play the requested track
         if let Ok(url) = url::Url::parse(args.message()) {
-            // If URL is given, play URL
             let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-            let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+            if let Some(_) = add_youtube_playlist(ctx, msg, url.as_str()).await {
+
+            } else {
+                // If URL is given, play URL
+                let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+            }
         } else {
             // Otherwise search YouTube Music
             // drop(handler_lock);
