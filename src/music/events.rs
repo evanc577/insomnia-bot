@@ -118,7 +118,9 @@ impl VoiceEventHandler for TrackEndNotifier {
             }
             drop(handler);
 
-            send_msg(&self.http, self.chan_id, SendMessage::Normal("Queue ended")).await;
+            // Need to figure out how to prevent this message spamming chat when stopping queue
+            // with multiple tracks
+            // send_msg(&self.http, self.chan_id, SendMessage::Normal("Queue ended")).await;
 
             set_leave_timer(handler_lock).await;
         }

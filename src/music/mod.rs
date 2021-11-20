@@ -34,7 +34,7 @@ use songbird::tracks::{PlayMode, TrackHandle};
 use std::collections::HashSet;
 
 #[group]
-#[commands(play, song, video, skip, stop, pause, list, remove)]
+#[commands(play, song, video, album, skip, stop, pause, list, remove)]
 pub struct Music;
 
 #[help]
@@ -59,7 +59,7 @@ async fn music_help(
 #[command]
 #[only_in(guilds)]
 #[description = "Play a song via YouTube Music. If a URL is given, play the URL. If no argument is given, resume the paused track."]
-#[usage = "[url | search_query]"]
+#[usage = "[search_query | url]"]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
     {
@@ -116,14 +116,12 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         if let Ok(url) = url::Url::parse(args.message()) {
             let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
             if let Some(_) = add_youtube_playlist(ctx, msg, url.as_str()).await {
-
             } else {
                 // If URL is given, play URL
-                let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+                let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
             }
         } else {
             // Otherwise search YouTube Music
-            // drop(handler_lock);
             let _ = song(ctx, msg, args).await;
         }
     }
@@ -152,9 +150,9 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         };
     }
 
-    if let Some(url) = youtube_music::yt_music_search(args.message().to_owned()).await {
+    if let Some(url) = youtube_music::yt_music_song_search(args.message().to_owned()).await {
         let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+        let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
     } else {
         send_msg(
             &ctx.http,
@@ -171,7 +169,7 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 #[description = "Play an uploaded video's audio via YouTube."]
-#[usage = "[search_query]"]
+#[usage = "[search_query | url]"]
 async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
     {
@@ -193,11 +191,52 @@ async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     if let Ok(url) = url::Url::parse(args.message()) {
         // If URL is given, play URL
-        let _ = add_track(ctx, msg, Query::URL(url.as_str())).await;
+        let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
     } else {
         // Otherwise search YouTube Music
-        let _ = add_track(ctx, msg, Query::Search(args.message())).await;
+        let _ = add_track(ctx, msg, vec![Query::Search(args.message().to_string())]).await;
     }
+
+    Ok(())
+}
+
+#[command]
+#[only_in(guilds)]
+#[description = "Play an album via YouTube Music."]
+#[usage = "[search_query]"]
+async fn album(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    // Only allow if user is in a voice channel
+    {
+        match msg.get_voice(ctx).await {
+            Ok(h) => h,
+            Err(_) => {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                return Ok(());
+            }
+        };
+    }
+
+    let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+
+    // Otherwise search YouTube Music
+    if let Some(url) = youtube_music::yt_music_album_search(args.message().to_owned()).await {
+        let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
+        if let Some(_) = add_youtube_playlist(ctx, msg, url.as_str()).await {
+            return Ok(());
+        }
+    }
+
+    send_msg(
+        &ctx.http,
+        msg.channel_id,
+        SendMessage::Error(MusicError::BadSource.as_str()),
+    )
+    .await;
 
     Ok(())
 }

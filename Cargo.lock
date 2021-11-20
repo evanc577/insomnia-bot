@@ -703,6 +703,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "approx",
+ "futures",
  "if_chain",
  "markdown",
  "once_cell",

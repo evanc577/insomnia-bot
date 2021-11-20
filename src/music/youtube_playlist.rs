@@ -25,10 +25,11 @@ pub async fn add_youtube_playlist(ctx: &Context, msg: &Message, url: &str) -> Op
     let tracks = get_playlist_tracks(id).await;
     let num_tracks = tracks.len();
 
-    for track in tracks {
-        let url = format!("https://www.youtube.com/watch?v={}", track.id);
-        let _ = add_track(ctx, msg, Query::URL(&url)).await;
-    }
+    let urls: Vec<_> = tracks
+        .iter()
+        .map(|t| Query::URL(format!("https://www.youtube.com/watch?v={}", t.id)))
+        .collect();
+    let _ = add_track(ctx, msg, urls).await;
 
     Some(num_tracks)
 }
