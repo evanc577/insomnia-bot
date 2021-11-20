@@ -105,6 +105,40 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
     Ok(())
 }
 
+pub async fn remove_track(
+    ctx: &Context,
+    msg: &Message,
+    start_idx: usize,
+    end_idx: usize,
+) -> Result<Vec<TrackHandle>, MusicError> {
+    let mutex = match get_lock(ctx, msg).await {
+        Err(_) => return Err(MusicError::RemoveTrack),
+        Ok(m) => m,
+    };
+    let _lock = mutex.lock().await;
+
+    let handler_lock = msg
+        .get_voice(ctx)
+        .await
+        .map_err(|_| MusicError::RemoveTrack)?;
+
+    let handler = handler_lock.lock().await;
+    let queue = handler.queue();
+
+    // Remove requested track
+    let mut removed_tracks = vec![];
+    queue.modify_queue(|q| {
+        for idx in (start_idx..=end_idx).rev() {
+            if let Some(t) = q.remove(idx) {
+                removed_tracks.push(t.handle());
+                t.stop().unwrap_or(())
+            };
+        }
+    });
+
+    Ok(removed_tracks)
+}
+
 async fn create_track(
     ctx: &Context,
     msg: &Message,

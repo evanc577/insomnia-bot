@@ -8,6 +8,7 @@ pub enum MusicError {
     NoPausedTrack,
     NoPlayingTrack,
     NotInVoiceChannel,
+    RemoveTrack,
 }
 
 impl MusicError {
@@ -19,6 +20,7 @@ impl MusicError {
             Self::NoPausedTrack => "No currently paused track",
             Self::NoPlayingTrack => "No currently playing track",
             Self::NotInVoiceChannel => "Not in a voice channel",
+            Self::RemoveTrack => "Could not remove track",
         }
     }
 }

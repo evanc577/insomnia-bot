@@ -12,6 +12,7 @@ use crate::music::queue::add_track;
 use crate::music::queue::Query;
 
 use self::message::{format_update, PlayUpdate};
+use self::queue::remove_track;
 use self::voice::{CanGetVoice, CanJoinVoice};
 use self::youtube_playlist::add_youtube_playlist;
 
@@ -410,80 +411,77 @@ fn format_track(track: &TrackHandle) -> String {
 #[description = "Remove a track from the queue."]
 #[usage = "track_number"]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    if let Ok(handler_lock) = msg.get_voice(ctx).await {
-        // Parse arguments
-        let arg = match args.single::<String>() {
-            Ok(a) => a,
+    // Only allow if user is in a voice channel
+    {
+        match msg.get_voice(ctx).await {
+            Ok(h) => h,
             Err(_) => {
                 send_msg(
                     &ctx.http,
                     msg.channel_id,
-                    SendMessage::Error(MusicError::BadArgument.as_str()),
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
                 return Ok(());
             }
         };
-        let idx = arg.to_lowercase().parse::<usize>();
-        if let Ok(i) = idx {
-            if i == 0 {
-                send_msg(
-                    &ctx.http,
-                    msg.channel_id,
-                    SendMessage::Error(MusicError::BadIndex.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-            let i = i - 1;
-
-            let handler = handler_lock.lock().await;
-            let queue = handler.queue();
-
-            // Get info about the track to be removed
-            let current_queue = queue.current_queue();
-            let track = match current_queue.get(i) {
-                Some(t) => t,
-                None => {
-                    send_msg(
-                        &ctx.http,
-                        msg.channel_id,
-                        SendMessage::Error(MusicError::BadIndex.as_str()),
-                    )
-                    .await;
-                    return Ok(());
-                }
-            };
-
-            // Remove requested track
-            queue.modify_queue(|q| {
-                if let Some(t) = q.remove(i) {
-                    t.stop().unwrap_or(())
-                };
-            });
-
-            // Respond
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Custom(format_update(track, PlayUpdate::Remove)),
-            )
-            .await;
-        } else {
+    }
+    // Parse arguments
+    let start_idx = match args.single::<usize>() {
+        Ok(a) => a,
+        Err(_) => {
             send_msg(
                 &ctx.http,
                 msg.channel_id,
                 SendMessage::Error(MusicError::BadArgument.as_str()),
             )
             .await;
+            return Ok(());
         }
-    } else {
+    };
+    let end_idx = args.single::<usize>().ok();
+    if start_idx == 0 || end_idx.filter(|i| i <= &start_idx).is_some() {
         send_msg(
             &ctx.http,
             msg.channel_id,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+            SendMessage::Error(MusicError::BadIndex.as_str()),
         )
         .await;
+        return Ok(());
+    }
+    let start_idx = start_idx - 1;
+    let end_idx = match end_idx {
+        Some(i) => i - 1,
+        None => start_idx,
+    };
+
+    // Remove tracks
+    match remove_track(ctx, msg, start_idx, end_idx).await {
+        Ok(removed) => {
+            if removed.len() == 1 {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Custom(format_update(&removed[0], PlayUpdate::Remove)),
+                )
+                .await;
+            } else {
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Normal(&format!("Removed {} tracks", removed.len())),
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            send_msg(
+                &ctx.http,
+                msg.channel_id,
+                SendMessage::Error(&e.to_string()),
+            )
+            .await;
+        }
     }
 
     Ok(())
