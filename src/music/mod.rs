@@ -1,15 +1,15 @@
 mod error;
 mod events;
-mod loudness;
 mod message;
 mod sponsorblock;
 pub mod voice;
+mod youtube_loudness;
 mod youtube_music;
 
 use self::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
-use self::loudness::get_loudness;
 use self::message::{format_update, PlayUpdate};
 use self::voice::{CanGetVoice, CanJoinVoice};
+use self::youtube_loudness::get_loudness;
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::message::{send_msg, SendMessage};
 use crate::music::error::MusicError;
