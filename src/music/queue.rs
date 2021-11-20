@@ -1,16 +1,20 @@
+use anyhow::Result;
 use futures::stream::StreamExt;
-use std::{sync::Arc, time::Duration};
-
 use serenity::{
-    client::Context, framework::standard::CommandResult, model::channel::Message, prelude::*,
+    client::Context,
+    framework::standard::CommandResult,
+    model::{channel::Message, id::GuildId},
+    prelude::*,
 };
 use songbird::{
     input::{self, Restartable},
     tracks::{Track, TrackHandle},
     Event, TrackEvent,
 };
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
+    error::InsomniaError,
     message::{send_msg, SendMessage},
     music::{sponsorblock::get_skips, youtube_loudness::get_loudness},
 };
@@ -28,6 +32,12 @@ pub enum Query {
 }
 
 pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> CommandResult {
+    let mutex = match get_lock(ctx, msg).await {
+        Err(_) => return Ok(()),
+        Ok(m) => m,
+    };
+    let _lock = mutex.lock().await;
+
     let handler_lock = match msg.get_voice(ctx).await {
         Ok(h) => h,
         Err(_) => {
@@ -177,4 +187,32 @@ async fn create_track(
         .expect("Error adding TrackStartNotifier");
 
     Some((track, track_handle, sb_time))
+}
+
+pub struct QueueMutexMap;
+
+impl TypeMapKey for QueueMutexMap {
+    type Value = HashMap<Option<GuildId>, Arc<Mutex<()>>>;
+}
+
+async fn get_lock(ctx: &Context, msg: &Message) -> Result<Arc<Mutex<()>>> {
+    let data = ctx.data.read().await;
+    let map = data
+        .get::<QueueMutexMap>()
+        .ok_or(InsomniaError::QueueLock)?;
+    let m = match map.get(&msg.guild_id) {
+        Some(m) => m.clone(),
+        None => {
+            let m = Arc::new(Mutex::new(()));
+            drop(data);
+            let mut data = ctx.data.write().await;
+            let map = data
+                .get_mut::<QueueMutexMap>()
+                .ok_or(InsomniaError::QueueLock)?;
+            map.insert(msg.guild_id, m.clone());
+            m
+        }
+    };
+
+    Ok(m)
 }

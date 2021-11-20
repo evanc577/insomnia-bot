@@ -5,10 +5,7 @@ mod music;
 
 use std::collections::HashMap;
 
-use crate::{
-    config::{Config, CONFIG_FILE},
-    music::{voice::CallMutexMap, MUSIC_GROUP, MUSIC_HELP},
-};
+use crate::{config::{Config, CONFIG_FILE}, music::{MUSIC_GROUP, MUSIC_HELP, queue::QueueMutexMap, voice::CallMutexMap}};
 
 use serenity::{
     async_trait,
@@ -58,6 +55,7 @@ async fn main() {
     {
         let mut data = client.data.write().await;
         data.insert::<CallMutexMap>(HashMap::new());
+        data.insert::<QueueMutexMap>(HashMap::new());
     }
 
     // Register signal handlers

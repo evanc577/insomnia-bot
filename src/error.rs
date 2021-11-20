@@ -6,6 +6,7 @@ pub enum InsomniaError {
     JoinVoice,
     GetVoice,
     VoiceLock,
+    QueueLock,
     Loudness,
 }
 
@@ -16,6 +17,7 @@ impl Display for InsomniaError {
             Self::JoinVoice => write!(f, "Error: could not join voice channel"),
             Self::GetVoice => write!(f, "Error: could not get voice channel"),
             Self::VoiceLock => write!(f, "Error: could not get voice channel lock"),
+            Self::QueueLock => write!(f, "Error: could not get queue lock"),
             Self::Loudness => write!(f, "Error: could not get track loudness"),
         }
     }

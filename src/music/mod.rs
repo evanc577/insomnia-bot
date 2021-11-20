@@ -1,7 +1,7 @@
 mod error;
 mod events;
 mod message;
-mod queue;
+pub mod queue;
 mod sponsorblock;
 pub mod voice;
 mod youtube_loudness;
