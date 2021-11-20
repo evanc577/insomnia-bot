@@ -408,8 +408,8 @@ fn format_track(track: &TrackHandle) -> String {
 #[command]
 #[only_in(guilds)]
 #[aliases("rm")]
-#[description = "Remove a track from the queue."]
-#[usage = "track_number"]
+#[description = "Remove tracks from the queue."]
+#[usage = "track_number {end_track_number_inclusive}"]
 async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     // Only allow if user is in a voice channel
     {
