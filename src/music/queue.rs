@@ -61,7 +61,7 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
         let lazy = lazy || (i != 0);
         create_track(ctx, msg, q, lazy)
     }))
-    .buffered(10)
+    .buffered(20)
     .collect::<Vec<_>>()
     .await
     .into_iter()
