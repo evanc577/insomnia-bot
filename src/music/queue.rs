@@ -57,41 +57,38 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
         !handler.queue().is_empty()
     };
 
-    let tracks = futures::stream::iter(query.into_iter().enumerate().map(|(i, q)| {
+    let mut tracks = futures::stream::iter(query.into_iter().enumerate().map(|(i, q)| {
         let lazy = lazy || (i != 0);
         create_track(ctx, msg, q, lazy)
     }))
-    .buffered(20)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .filter_map(|x| x)
-    .collect::<Vec<_>>();
+    .buffered(20);
 
     if let Ok(handler_lock) = msg.join_voice(ctx).await {
         let mut handler = handler_lock.lock().await;
         handler.remove_all_global_events();
 
-        for (track, track_handle, sb_time) in tracks {
-            // Queue track
-            handler.enqueue(track);
+        while let Some(x) = tracks.next().await {
+            if let Some((track, track_handle, sb_time)) = x {
+                // Queue track
+                handler.enqueue(track);
 
-            // Make the next song in queue playable to reduce delay
-            let queue = handler.queue().current_queue();
-            if queue.len() > 1 {
-                let _ = queue[1].make_playable();
+                // Make the next song in queue playable to reduce delay
+                let queue = handler.queue().current_queue();
+                if queue.len() > 1 {
+                    let _ = queue[1].make_playable();
+                }
+
+                let update = match handler.queue().current_queue().len() {
+                    1 => PlayUpdate::Play(queue.len(), sb_time),
+                    _ => PlayUpdate::Add(queue.len()),
+                };
+                send_msg(
+                    &ctx.http,
+                    msg.channel_id,
+                    SendMessage::Custom(format_update(&track_handle, update)),
+                )
+                .await;
             }
-
-            let update = match handler.queue().current_queue().len() {
-                1 => PlayUpdate::Play(queue.len(), sb_time),
-                _ => PlayUpdate::Add(queue.len()),
-            };
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Custom(format_update(&track_handle, update)),
-            )
-            .await;
         }
     } else {
         send_msg(
