@@ -1,4 +1,5 @@
-use std::{fmt::Display, time::Duration};
+use std::fmt::Display;
+use std::time::Duration;
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
@@ -6,7 +7,6 @@ use serenity::builder::CreateEmbed;
 use songbird::tracks::TrackHandle;
 
 use crate::config::EMBED_COLOR;
-
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PlayUpdate {
@@ -94,7 +94,10 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
     let duration_name_text =
         generate_markdown(vec![Block::Paragraph(vec![DURATION_NAME_SPAN.clone()])]);
     let duration_value_text =
-        generate_markdown(vec![Block::Paragraph(vec![format_track_duration(track, update.sb_time())])]);
+        generate_markdown(vec![Block::Paragraph(vec![format_track_duration(
+            track,
+            update.sb_time(),
+        )])]);
     fields.push((duration_name_text, duration_value_text, true));
 
     // Thumbnail
@@ -118,7 +121,11 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
 }
 
 fn format_track_link(track: &TrackHandle) -> Span {
-    let title = track.metadata().title.clone().unwrap_or_else(|| "Unknown".into());
+    let title = track
+        .metadata()
+        .title
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
     let span = match track.metadata().source_url.clone() {
         Some(u) => Span::Link(title, u, None),
         None => Span::Text(title),
@@ -127,7 +134,11 @@ fn format_track_link(track: &TrackHandle) -> Span {
 }
 
 fn format_artist(track: &TrackHandle) -> Span {
-    let artist = track.metadata().artist.clone().unwrap_or_else(|| "Unknown".into());
+    let artist = track
+        .metadata()
+        .artist
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
     Span::Text(artist)
 }
 

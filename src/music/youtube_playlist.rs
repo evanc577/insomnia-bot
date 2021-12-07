@@ -3,7 +3,8 @@ use std::process::Command;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
-use serenity::{client::Context, model::channel::Message};
+use serenity::client::Context;
+use serenity::model::channel::Message;
 
 use crate::music::queue::{add_track, Query};
 
@@ -27,7 +28,7 @@ pub async fn add_youtube_playlist(ctx: &Context, msg: &Message, url: &str) -> Op
 
     let urls: Vec<_> = tracks
         .iter()
-        .map(|t| Query::URL(format!("https://www.youtube.com/watch?v={}", t.id)))
+        .map(|t| Query::Url(format!("https://www.youtube.com/watch?v={}", t.id)))
         .collect();
     let _ = add_track(ctx, msg, urls).await;
 
@@ -56,7 +57,7 @@ async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
                 }
                 Some(String::from_utf8_lossy(&o.stdout).into_owned())
             }
-            Err(_) => return None,
+            Err(_) => None,
         }
     })
     .await;
@@ -68,7 +69,7 @@ async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
 
     // Parse playlist
     let playlist_tracks: Vec<_> = output
-        .split("\n")
+        .split('\n')
         .filter_map(|l| serde_json::from_str::<PlaylistTrack>(l).ok())
         .collect();
 

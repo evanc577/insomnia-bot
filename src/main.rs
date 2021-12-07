@@ -5,14 +5,15 @@ mod music;
 
 use std::collections::HashMap;
 
-use crate::{config::{Config, CONFIG_FILE}, music::{MUSIC_GROUP, MUSIC_HELP, queue::QueueMutexMap, voice::CallMutexMap}};
+use crate::config::{Config, CONFIG_FILE};
+use crate::music::queue::QueueMutexMap;
+use crate::music::voice::CallMutexMap;
+use crate::music::{MUSIC_GROUP, MUSIC_HELP};
 
-use serenity::{
-    async_trait,
-    client::{Client, Context, EventHandler},
-    framework::StandardFramework,
-    model::gateway::Ready,
-};
+use serenity::async_trait;
+use serenity::client::{Client, Context, EventHandler};
+use serenity::framework::StandardFramework;
+use serenity::model::gateway::Ready;
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 

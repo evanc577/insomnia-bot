@@ -1,7 +1,8 @@
-use serenity::{builder::CreateEmbed, http::Http, model::id::ChannelId};
+use serenity::builder::CreateEmbed;
+use serenity::http::Http;
+use serenity::model::id::ChannelId;
 
 use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
-
 
 pub enum SendMessage<'a> {
     Normal(&'a str),
@@ -29,4 +30,3 @@ pub async fn send_msg(http: &Http, channel_id: ChannelId, message: SendMessage<'
         })
         .await;
 }
-

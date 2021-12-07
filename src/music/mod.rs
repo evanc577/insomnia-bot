@@ -8,8 +8,7 @@ mod youtube_loudness;
 mod youtube_music;
 mod youtube_playlist;
 
-use crate::music::queue::add_track;
-use crate::music::queue::Query;
+use crate::music::queue::{add_track, Query};
 
 use self::message::{format_update, PlayUpdate};
 use self::queue::remove_track;
@@ -21,16 +20,14 @@ use crate::message::{send_msg, SendMessage};
 use crate::music::error::MusicError;
 
 use if_chain::if_chain;
-use serenity::http::Typing;
-use serenity::{
-    client::Context,
-    framework::standard::{
-        help_commands,
-        macros::{command, group, help},
-        Args, CommandGroup, CommandResult, HelpOptions,
-    },
-    model::{channel::Message, id::UserId},
+use serenity::client::Context;
+use serenity::framework::standard::macros::{command, group, help};
+use serenity::framework::standard::{
+    help_commands, Args, CommandGroup, CommandResult, HelpOptions,
 };
+use serenity::http::Typing;
+use serenity::model::channel::Message;
+use serenity::model::id::UserId;
 use songbird::tracks::{PlayMode, TrackHandle};
 use std::collections::HashSet;
 
@@ -116,10 +113,10 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         // Otherwise search/play the requested track
         if let Ok(url) = url::Url::parse(args.message()) {
             let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-            if let Some(_) = add_youtube_playlist(ctx, msg, url.as_str()).await {
+            if add_youtube_playlist(ctx, msg, url.as_str()).await.is_some() {
             } else {
                 // If URL is given, play URL
-                let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
+                let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
             }
         } else {
             // Otherwise search YouTube Music
@@ -153,7 +150,7 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     if let Some(url) = youtube_music::yt_music_song_search(args.message().to_owned()).await {
         let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
+        let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
     } else {
         send_msg(
             &ctx.http,
@@ -192,7 +189,7 @@ async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
     if let Ok(url) = url::Url::parse(args.message()) {
         // If URL is given, play URL
-        let _ = add_track(ctx, msg, vec![Query::URL(url.to_string())]).await;
+        let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
     } else {
         // Otherwise search YouTube Music
         let _ = add_track(ctx, msg, vec![Query::Search(args.message().to_string())]).await;
@@ -227,7 +224,7 @@ async fn album(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Otherwise search YouTube Music
     if let Some(url) = youtube_music::yt_music_album_search(args.message().to_owned()).await {
         let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        if let Some(_) = add_youtube_playlist(ctx, msg, url.as_str()).await {
+        if add_youtube_playlist(ctx, msg, url.as_str()).await.is_some() {
             return Ok(());
         }
     }

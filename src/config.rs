@@ -29,7 +29,7 @@ impl Config {
             Err(_) => Config {
                 token: "".into(),
                 prefix: default_prefix(),
-            }
+            },
         };
 
         if let Ok(token) = env::var("DISCORD_TOKEN") {

@@ -38,7 +38,6 @@ struct AudioConfig {
     loudness_db: f32,
 }
 
-
 pub async fn get_loudness(url: &str) -> f32 {
     get_loudness_helper(url).await.unwrap_or(1.0)
 }

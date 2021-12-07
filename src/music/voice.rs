@@ -1,17 +1,15 @@
-use crate::error::InsomniaError;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
-use serenity::{
-    async_trait,
-    client::Context,
-    model::{
-        channel::Message,
-        id::{ChannelId, GuildId},
-    },
-    prelude::*,
-};
+use serenity::async_trait;
+use serenity::client::Context;
+use serenity::model::channel::Message;
+use serenity::model::id::{ChannelId, GuildId};
+use serenity::prelude::*;
 use songbird::Call;
-use std::{collections::HashMap, sync::Arc};
+
+use crate::error::InsomniaError;
 
 pub struct CallMutexMap;
 

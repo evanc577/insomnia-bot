@@ -1,34 +1,31 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Result;
 use futures::stream::StreamExt;
-use serenity::{
-    client::Context,
-    framework::standard::CommandResult,
-    model::{channel::Message, id::GuildId},
-    prelude::*,
-};
-use songbird::{
-    input::{self, Restartable},
-    tracks::{Track, TrackHandle},
-    Event, TrackEvent,
-};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use serenity::client::Context;
+use serenity::framework::standard::CommandResult;
+use serenity::model::channel::Message;
+use serenity::model::id::GuildId;
+use serenity::prelude::*;
+use songbird::input::{self, Restartable};
+use songbird::tracks::{Track, TrackHandle};
+use songbird::{Event, TrackEvent};
 
-use crate::{
-    error::InsomniaError,
-    message::{send_msg, SendMessage},
-    music::{sponsorblock::get_skips, youtube_loudness::get_loudness},
-};
+use crate::error::InsomniaError;
+use crate::message::{send_msg, SendMessage};
+use crate::music::sponsorblock::get_skips;
+use crate::music::youtube_loudness::get_loudness;
 
-use super::{
-    error::MusicError,
-    events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier},
-    message::{format_update, PlayUpdate},
-    voice::{CanGetVoice, CanJoinVoice},
-};
+use super::error::MusicError;
+use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
+use super::message::{format_update, PlayUpdate};
+use super::voice::{CanGetVoice, CanJoinVoice};
 
 pub enum Query {
     Search(String),
-    URL(String),
+    Url(String),
 }
 
 pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> CommandResult {
@@ -145,7 +142,7 @@ async fn create_track(
     // Create source
     let source = match query {
         Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
-        Query::URL(x) => Restartable::ytdl(x.to_owned(), lazy).await,
+        Query::Url(x) => Restartable::ytdl(x.to_owned(), lazy).await,
     };
     let source = match source {
         Ok(s) => s,
@@ -174,7 +171,7 @@ async fn create_track(
     let _ = track_handle.set_volume(volume);
 
     // Set TrackSegmentSkipper if skips exist
-    let sb_time = if let Some(segment) = skips.iter().next().cloned() {
+    let sb_time = if let Some(segment) = skips.get(0).cloned() {
         let sb_time = skips.iter().map(|(a, b)| *b - *a).sum();
         track_handle
             .add_event(

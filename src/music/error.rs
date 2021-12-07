@@ -1,4 +1,5 @@
-use std::{fmt::Display, error::Error};
+use std::error::Error;
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub enum MusicError {
