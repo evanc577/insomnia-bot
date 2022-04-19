@@ -166,6 +166,7 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
 #[command]
 #[only_in(guilds)]
+#[aliases("yt", "youtube")]
 #[description = "Play an uploaded video's audio via YouTube."]
 #[usage = "[search_query | url]"]
 async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
@@ -399,7 +400,7 @@ fn format_track(track: &TrackHandle) -> String {
         .clone()
         .unwrap_or_else(|| "Unknown".into());
 
-    title.replace("`", "")
+    title.replace('`', "")
 }
 
 #[command]

@@ -44,7 +44,7 @@ async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
 
     // Get playlist items via youtube-dl
     let output = tokio::spawn(async move {
-        match Command::new("youtube-dl")
+        match Command::new("yt-dlp")
             .arg("--ignore-config")
             .arg("--dump-json")
             .arg("--flat-playlist")

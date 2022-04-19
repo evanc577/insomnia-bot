@@ -64,8 +64,11 @@ pub fn format_update(
         let title_text = generate_markdown(vec![title_block]);
 
         // Generate description
-        let description_span = Span::Strong(vec![format_track_link(track)]);
-        let description_block = Block::Paragraph(vec![description_span]);
+        let description_block = if update.detailed() {
+            format_detailed_track_link(track)
+        } else {
+            format_track_link(track)
+        };
         let description_text = generate_markdown(vec![description_block]);
 
         e.title(title_text);
@@ -120,17 +123,39 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
     }
 }
 
-fn format_track_link(track: &TrackHandle) -> Span {
+/// Returns "artist — title"
+fn format_track_link(track: &TrackHandle) -> Block {
     let title = track
         .metadata()
         .title
         .clone()
         .unwrap_or_else(|| "Unknown".into());
-    let span = match track.metadata().source_url.clone() {
+    let artist = track
+        .metadata()
+        .artist
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
+    let title_span = match track.metadata().source_url.clone() {
         Some(u) => Span::Link(title, u, None),
         None => Span::Text(title),
     };
-    span
+    let title_span = Span::Strong(vec![title_span]);
+    Block::Paragraph(vec![Span::Text(artist), Span::Text(" — ".to_string()), title_span])
+}
+
+/// Only returns the track name, artist and other info will be placed in separate fields
+fn format_detailed_track_link(track: &TrackHandle) -> Block {
+    let title = track
+        .metadata()
+        .title
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
+    let title_span = match track.metadata().source_url.clone() {
+        Some(u) => Span::Link(title, u, None),
+        None => Span::Text(title),
+    };
+    let title_span = Span::Strong(vec![title_span]);
+    Block::Paragraph(vec![title_span])
 }
 
 fn format_artist(track: &TrackHandle) -> Span {
