@@ -1,7 +1,17 @@
-# insomnia-bot
+# insomnia-bot - A Discord music bot
 
-A Discord bot
+## Features
 
+* Search and play from YouTube Music by default
+* Add albums and playlists to queue
+* Loudness normalization
+* Sponsorblock segment skipping
+
+## Requirements
+
+* ffmpeg
+* yt-dlp
+* ytmusicapi python module
 
 ## Configuration
 
