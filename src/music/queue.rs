@@ -4,43 +4,39 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::stream::StreamExt;
-use serenity::client::Context;
-use serenity::framework::standard::CommandResult;
-use serenity::model::channel::Message;
 use serenity::model::id::GuildId;
 use serenity::prelude::*;
 use songbird::input::{self, Restartable};
 use songbird::tracks::{Track, TrackHandle};
 use songbird::{Event, TrackEvent};
 
-use crate::error::InsomniaError;
-use crate::message::{send_msg, SendMessage};
-use crate::music::sponsorblock::get_skips;
-use crate::music::youtube_loudness::get_loudness;
-
 use super::error::MusicError;
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use super::message::{format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
+use crate::error::InsomniaError;
+use crate::message::{send_msg, SendMessage};
+use crate::music::sponsorblock::get_skips;
+use crate::music::youtube_loudness::get_loudness;
+use crate::PoiseContext;
 
 pub enum Query {
     Search(String),
     Url(String),
 }
 
-pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> CommandResult {
-    let mutex = match get_lock(ctx, msg).await {
+pub async fn add_track(ctx: PoiseContext<'_>, query: Vec<Query>) -> Result<()> {
+    let mutex = match get_lock(ctx).await {
         Err(_) => return Ok(()),
         Ok(m) => m,
     };
     let _lock = mutex.lock().await;
 
-    let handler_lock = match msg.get_voice(ctx).await {
+    let handler_lock = match ctx.get_voice().await {
         Ok(h) => h,
         Err(_) => {
             send_msg(
-                &ctx.http,
-                msg.channel_id,
+                ctx,
                 SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
             )
             .await;
@@ -56,11 +52,11 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
 
     let mut tracks = futures::stream::iter(query.into_iter().enumerate().map(|(i, q)| {
         let lazy = lazy || (i != 0);
-        create_track(ctx, msg, q, lazy)
+        create_track(ctx, q, lazy)
     }))
     .buffered(20);
 
-    if let Ok(handler_lock) = msg.join_voice(ctx).await {
+    if let Ok(handler_lock) = ctx.join_voice().await {
         let mut handler = handler_lock.lock().await;
         handler.remove_all_global_events();
 
@@ -80,8 +76,7 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
                     _ => PlayUpdate::Add(queue.len()),
                 };
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Custom(format_update(&track_handle, update)),
                 )
                 .await;
@@ -89,8 +84,7 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
         }
     } else {
         send_msg(
-            &ctx.http,
-            msg.channel_id,
+            ctx,
             SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
@@ -100,21 +94,17 @@ pub async fn add_track(ctx: &Context, msg: &Message, query: Vec<Query>) -> Comma
 }
 
 pub async fn remove_track(
-    ctx: &Context,
-    msg: &Message,
+    ctx: PoiseContext<'_>,
     start_idx: usize,
     end_idx: usize,
 ) -> Result<Vec<TrackHandle>, MusicError> {
-    let mutex = match get_lock(ctx, msg).await {
+    let mutex = match get_lock(ctx).await {
         Err(_) => return Err(MusicError::RemoveTrack),
         Ok(m) => m,
     };
     let _lock = mutex.lock().await;
 
-    let handler_lock = msg
-        .get_voice(ctx)
-        .await
-        .map_err(|_| MusicError::RemoveTrack)?;
+    let handler_lock = ctx.get_voice().await.map_err(|_| MusicError::RemoveTrack)?;
 
     let handler = handler_lock.lock().await;
     let queue = handler.queue();
@@ -134,8 +124,7 @@ pub async fn remove_track(
 }
 
 async fn create_track(
-    ctx: &Context,
-    msg: &Message,
+    ctx: PoiseContext<'_>,
     query: Query,
     lazy: bool,
 ) -> Option<(Track, TrackHandle, Option<Duration>)> {
@@ -147,12 +136,7 @@ async fn create_track(
     let source = match source {
         Ok(s) => s,
         Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(MusicError::BadSource.as_str()),
-            )
-            .await;
+            send_msg(ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
             return None;
         }
     };
@@ -192,10 +176,10 @@ async fn create_track(
         .add_event(
             Event::Track(TrackEvent::End),
             TrackEndNotifier {
-                ctx: Arc::new(Mutex::new(ctx.clone())),
-                chan_id: msg.channel_id,
-                guild_id: msg.guild(&ctx.cache).await.unwrap().id,
-                http: ctx.http.clone(),
+                ctx: Arc::new(Mutex::new(ctx.discord().clone())),
+                chan_id: ctx.channel_id(),
+                guild_id: ctx.guild_id().unwrap(),
+                http: ctx.discord().http.clone(),
             },
         )
         .expect("Error adding TrackEndNotifier");
@@ -205,10 +189,10 @@ async fn create_track(
         .add_event(
             Event::Track(TrackEvent::Play),
             TrackStartNotifier {
-                ctx: Arc::new(Mutex::new(ctx.clone())),
-                chan_id: msg.channel_id,
-                guild_id: msg.guild(&ctx.cache).await.unwrap().id,
-                http: ctx.http.clone(),
+                ctx: Arc::new(Mutex::new(ctx.discord().clone())),
+                chan_id: ctx.channel_id(),
+                guild_id: ctx.guild_id().unwrap(),
+                http: ctx.discord().http.clone(),
                 sb_time,
             },
         )
@@ -223,21 +207,21 @@ impl TypeMapKey for QueueMutexMap {
     type Value = HashMap<Option<GuildId>, Arc<Mutex<()>>>;
 }
 
-async fn get_lock(ctx: &Context, msg: &Message) -> Result<Arc<Mutex<()>>> {
-    let data = ctx.data.read().await;
+async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>> {
+    let data = ctx.discord().data.read().await;
     let map = data
         .get::<QueueMutexMap>()
         .ok_or(InsomniaError::QueueLock)?;
-    let m = match map.get(&msg.guild_id) {
+    let m = match map.get(&ctx.guild_id()) {
         Some(m) => m.clone(),
         None => {
             let m = Arc::new(Mutex::new(()));
             drop(data);
-            let mut data = ctx.data.write().await;
+            let mut data = ctx.discord().data.write().await;
             let map = data
                 .get_mut::<QueueMutexMap>()
                 .ok_or(InsomniaError::QueueLock)?;
-            map.insert(msg.guild_id, m.clone());
+            map.insert(ctx.guild_id(), m.clone());
             m
         }
     };

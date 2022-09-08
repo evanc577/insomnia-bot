@@ -2,15 +2,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::message::{format_update, PlayUpdate};
-use crate::message::{send_msg, SendMessage};
-
 use serenity::async_trait;
 use serenity::http::Http;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
-
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
+
+use super::message::{format_update, PlayUpdate};
+use crate::message::{send_msg_http, SendMessage};
 
 pub struct TrackSegmentSkipper {
     pub segments: Vec<(Duration, Duration)>,
@@ -77,7 +76,7 @@ impl VoiceEventHandler for TrackStartNotifier {
             } else {
                 PlayUpdate::Resume
             };
-            send_msg(
+            send_msg_http(
                 &self.http,
                 self.chan_id,
                 SendMessage::Custom(format_update(track, update)),

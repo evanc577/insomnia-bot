@@ -1,8 +1,9 @@
+use std::{env, fs};
+
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serenity::utils::Color;
-use std::{env, fs};
 
 use crate::error::InsomniaError;
 

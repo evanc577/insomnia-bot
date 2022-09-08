@@ -27,7 +27,6 @@ impl SearchType {
 struct YTMusicSearchResult {
     category: String,
     result_type: String,
-    title: Option<String>,
     video_id: Option<String>,
     browse_id: Option<String>,
 }

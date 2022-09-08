@@ -84,8 +84,9 @@ fn db_to_float(db: f32) -> f32 {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use approx::*;
+
+    use super::*;
 
     static URL: &str = "https://www.youtube.com/watch?v=5gvfp-haKXc";
 

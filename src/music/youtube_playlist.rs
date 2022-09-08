@@ -3,10 +3,9 @@ use std::process::Command;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
-use serenity::client::Context;
-use serenity::model::channel::Message;
 
 use crate::music::queue::{add_track, Query};
+use crate::PoiseContext;
 
 static YT_ID_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"https?://(www|music)\.youtube\.com/playlist\?list=(?P<id>[0-9a-zA-Z\-_]+)")
@@ -16,12 +15,9 @@ static YT_ID_RE: Lazy<Regex> = Lazy::new(|| {
 #[derive(Debug, Deserialize)]
 struct PlaylistTrack {
     id: String,
-    title: String,
-    playlist_title: Option<String>,
-    playlist_index: Option<usize>,
 }
 
-pub async fn add_youtube_playlist(ctx: &Context, msg: &Message, url: &str) -> Option<usize> {
+pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Option<usize> {
     let id = playlist_id(url)?;
     let tracks = get_playlist_tracks(id).await;
     let num_tracks = tracks.len();
@@ -30,7 +26,7 @@ pub async fn add_youtube_playlist(ctx: &Context, msg: &Message, url: &str) -> Op
         .iter()
         .map(|t| Query::Url(format!("https://www.youtube.com/watch?v={}", t.id)))
         .collect();
-    let _ = add_track(ctx, msg, urls).await;
+    let _ = add_track(ctx, urls).await;
 
     Some(num_tracks)
 }

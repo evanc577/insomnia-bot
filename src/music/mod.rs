@@ -8,65 +8,35 @@ mod youtube_loudness;
 mod youtube_music;
 mod youtube_playlist;
 
-use crate::music::queue::{add_track, Query};
+use if_chain::if_chain;
+use songbird::tracks::{PlayMode, TrackHandle};
 
 use self::message::{format_update, PlayUpdate};
 use self::queue::remove_track;
 use self::voice::{CanGetVoice, CanJoinVoice};
 use self::youtube_playlist::add_youtube_playlist;
-
-use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::message::{send_msg, SendMessage};
 use crate::music::error::MusicError;
+use crate::music::queue::{add_track, Query};
+use crate::{Error, PoiseContext};
 
-use if_chain::if_chain;
-use serenity::client::Context;
-use serenity::framework::standard::macros::{command, group, help};
-use serenity::framework::standard::{
-    help_commands, Args, CommandGroup, CommandResult, HelpOptions,
-};
-use serenity::http::Typing;
-use serenity::model::channel::Message;
-use serenity::model::id::UserId;
-use songbird::tracks::{PlayMode, TrackHandle};
-use std::collections::HashSet;
-
-#[group]
-#[commands(play, song, video, album, skip, stop, pause, list, remove)]
-pub struct Music;
-
-#[help]
-#[individual_command_tip = ""]
-#[strikethrough_commands_tip_in_guild = ""]
-#[max_levenshtein_distance(1)]
-async fn music_help(
-    context: &Context,
-    msg: &Message,
-    args: Args,
-    help_options: &'static HelpOptions,
-    groups: &[&'static CommandGroup],
-    owners: HashSet<UserId>,
-) -> CommandResult {
-    let mut options = help_options.clone();
-    options.embed_success_colour = *EMBED_COLOR;
-    options.embed_error_colour = *EMBED_ERROR_COLOR;
-    let _ = help_commands::with_embeds(context, msg, args, &options, groups, owners).await;
-    Ok(())
-}
-
-#[command]
-#[only_in(guilds)]
-#[description = "Play a song via YouTube Music. If a URL is given, play the URL. If no argument is given, resume the paused track."]
-#[usage = "[search_query | url]"]
-async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+/// Play a song via YouTube Music or URL. If no argument is given, resume the paused track.
+#[poise::command(slash_command, prefix_command, guild_only, broadcast_typing)]
+pub async fn play(
+    ctx: PoiseContext<'_>,
+    #[rest]
+    #[description = "Song title or URL"]
+    #[rename = "song_or_url"]
+    arg: Option<String>,
+) -> Result<(), Error> {
+    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
-        match msg.get_voice(ctx).await {
+        match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -75,14 +45,25 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         };
     }
 
-    if args.is_empty() {
+    if let Some(arg) = arg {
+        // Otherwise search/play the requested track
+        if let Ok(url) = url::Url::parse(&arg) {
+            if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
+            } else {
+                // If URL is given, play URL
+                let _ = add_track(ctx, vec![Query::Url(url.to_string())]).await;
+            }
+        } else {
+            // Otherwise search YouTube Music
+            add_song(&ctx, arg).await?;
+        }
+    } else {
         // If no arguments, resume current track
-        let handler_lock = match msg.get_voice(ctx).await {
+        let handler_lock = match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -99,47 +80,38 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 let _ = track.play();
             } else {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NoPausedTrack.as_str()),
                 )
                 .await;
                 return Ok(());
             }
         }
-
-        return Ok(());
-    } else {
-        // Otherwise search/play the requested track
-        if let Ok(url) = url::Url::parse(args.message()) {
-            let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-            if add_youtube_playlist(ctx, msg, url.as_str()).await.is_some() {
-            } else {
-                // If URL is given, play URL
-                let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
-            }
-        } else {
-            // Otherwise search YouTube Music
-            let _ = song(ctx, msg, args).await;
-        }
     }
-
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[description = "Play a song via YouTube Music."]
-#[usage = "[search_query]"]
-async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+/// Play a song via YouTube Music
+#[poise::command(slash_command, prefix_command, guild_only, broadcast_typing)]
+pub async fn song(
+    ctx: PoiseContext<'_>,
+    #[rest]
+    #[description = "Song title"]
+    #[rename = "song"]
+    arg: String,
+) -> Result<(), Error> {
+    add_song(&ctx, arg).await
+}
+
+async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
+    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
-        match msg.get_voice(ctx).await {
+        match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    *ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -148,36 +120,39 @@ async fn song(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         };
     }
 
-    if let Some(url) = youtube_music::yt_music_song_search(args.message().to_owned()).await {
-        let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
+    if let Some(url) = youtube_music::yt_music_song_search(song).await {
+        let _ = add_track(*ctx, vec![Query::Url(url.to_string())]).await;
     } else {
-        send_msg(
-            &ctx.http,
-            msg.channel_id,
-            SendMessage::Error(MusicError::BadSource.as_str()),
-        )
-        .await;
+        send_msg(*ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
         return Ok(());
     }
 
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[aliases("yt", "youtube")]
-#[description = "Play an uploaded video's audio via YouTube."]
-#[usage = "[search_query | url]"]
-async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+/// Play a YouTube video
+#[poise::command(
+    slash_command,
+    prefix_command,
+    guild_only,
+    broadcast_typing,
+    aliases("yt", "youtube")
+)]
+pub async fn video(
+    ctx: PoiseContext<'_>,
+    #[rest]
+    #[description = "Search query or URL"]
+    #[rename = "query_or_url"]
+    arg: String,
+) -> Result<(), Error> {
+    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
-        match msg.get_voice(ctx).await {
+        match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -186,32 +161,34 @@ async fn video(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         };
     }
 
-    let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-
-    if let Ok(url) = url::Url::parse(args.message()) {
+    if let Ok(url) = url::Url::parse(&arg) {
         // If URL is given, play URL
-        let _ = add_track(ctx, msg, vec![Query::Url(url.to_string())]).await;
+        let _ = add_track(ctx, vec![Query::Url(url.to_string())]).await;
     } else {
         // Otherwise search YouTube Music
-        let _ = add_track(ctx, msg, vec![Query::Search(args.message().to_string())]).await;
+        let _ = add_track(ctx, vec![Query::Search(arg)]).await;
     }
 
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[description = "Play an album via YouTube Music."]
-#[usage = "[search_query]"]
-async fn album(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+/// Play an album via YouTube Music
+#[poise::command(slash_command, prefix_command, guild_only, broadcast_typing)]
+pub async fn album(
+    ctx: PoiseContext<'_>,
+    #[rest]
+    #[description = "Album title"]
+    #[rename = "album"]
+    arg: String,
+) -> Result<(), Error> {
+    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
-        match msg.get_voice(ctx).await {
+        match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -220,58 +197,41 @@ async fn album(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         };
     }
 
-    let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-
     // Otherwise search YouTube Music
-    if let Some(url) = youtube_music::yt_music_album_search(args.message().to_owned()).await {
-        let _typing = Typing::start(ctx.http.clone(), msg.channel_id.0);
-        if add_youtube_playlist(ctx, msg, url.as_str()).await.is_some() {
+    if let Some(url) = youtube_music::yt_music_album_search(arg).await {
+        if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
             return Ok(());
         }
     }
 
-    send_msg(
-        &ctx.http,
-        msg.channel_id,
-        SendMessage::Error(MusicError::BadSource.as_str()),
-    )
-    .await;
+    send_msg(ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
 
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[description = "Pause the currently playing track."]
-#[usage = ""]
-async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Ok(handler_lock) = msg.join_voice(ctx).await {
+/// Pause the currently playing track
+#[poise::command(slash_command, prefix_command, guild_only)]
+pub async fn pause(ctx: PoiseContext<'_>) -> Result<(), Error> {
+    if let Ok(handler_lock) = ctx.join_voice().await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
             if let Ok(info) = track.get_info().await {
                 if info.playing != PlayMode::Play {
-                    send_msg(
-                        &ctx.http,
-                        msg.channel_id,
-                        SendMessage::Error(MusicError::NoPlayingTrack.as_str()),
-                    )
-                    .await;
+                    send_msg(ctx, SendMessage::Error(MusicError::NoPlayingTrack.as_str())).await;
                     return Ok(());
                 }
             }
             let _ = track.pause();
             send_msg(
-                &ctx.http,
-                msg.channel_id,
+                ctx,
                 SendMessage::Custom(format_update(&track, PlayUpdate::Pause)),
             )
             .await;
         }
     } else {
         send_msg(
-            &ctx.http,
-            msg.channel_id,
+            ctx,
             SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
@@ -280,18 +240,15 @@ async fn pause(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[description = "Skip the currently playing track."]
-#[usage = ""]
-async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Ok(handler_lock) = msg.get_voice(ctx).await {
+/// Skip the currently playing track
+#[poise::command(slash_command, prefix_command, guild_only)]
+pub async fn skip(ctx: PoiseContext<'_>) -> Result<(), Error> {
+    if let Ok(handler_lock) = ctx.get_voice().await {
         let handler = handler_lock.lock().await;
         if let Some(track) = handler.queue().dequeue(0) {
             let _ = track.stop();
             send_msg(
-                &ctx.http,
-                msg.channel_id,
+                ctx,
                 SendMessage::Custom(format_update(&track, PlayUpdate::Skip)),
             )
             .await;
@@ -301,8 +258,7 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         }
     } else {
         send_msg(
-            &ctx.http,
-            msg.channel_id,
+            ctx,
             SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
@@ -311,10 +267,10 @@ async fn skip(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
-    if let Ok(handler_lock) = msg.get_voice(ctx).await {
+/// Stop playing and clear queue
+#[poise::command(slash_command, prefix_command, guild_only)]
+pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
+    if let Ok(handler_lock) = ctx.get_voice().await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
         if let Some(track) = queue.current() {
@@ -323,8 +279,7 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
         let _ = queue.stop();
     } else {
         send_msg(
-            &ctx.http,
-            msg.channel_id,
+            ctx,
             SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
@@ -333,23 +288,25 @@ async fn stop(ctx: &Context, msg: &Message, _args: Args) -> CommandResult {
     Ok(())
 }
 
-#[command]
-#[only_in(guilds)]
-#[aliases("ls", "queue")]
-#[description = "List all tracks in queue."]
-#[usage = "[track_number]"]
-async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+/// List tracks in queue
+#[poise::command(slash_command, prefix_command, guild_only, aliases("ls", "queue"))]
+pub async fn list(
+    ctx: PoiseContext<'_>,
+    #[rename = "index"]
+    #[description = "List starting from this index in queue"]
+    arg: Option<String>,
+) -> Result<(), Error> {
     const NUM_TRACKS: usize = 25;
 
-    let (total, list) = if let Ok(handler_lock) = msg.get_voice(ctx).await {
+    let (total, list) = if let Ok(handler_lock) = ctx.get_voice().await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue().current_queue();
         let queue_total = queue.len();
 
         // Parse arguments
-        let arg = match args.single::<String>() {
-            Ok(a) => a,
-            Err(_) => "1".to_owned(),
+        let arg = match arg {
+            Some(a) => a,
+            None => "1".to_owned(),
         };
         let start = match arg.to_lowercase().as_str() {
             "max" => None,
@@ -374,8 +331,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         (queue_total, list)
     } else {
         send_msg(
-            &ctx.http,
-            msg.channel_id,
+            ctx,
             SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
         )
         .await;
@@ -388,7 +344,7 @@ async fn list(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         1 => format!("{} track in queue\n```{}```", 1, list),
         n => format!("{} tracks in queue\n```{}```", n, list),
     };
-    send_msg(&ctx.http, msg.channel_id, SendMessage::Normal(&out_msg)).await;
+    send_msg(ctx, SendMessage::Normal(&out_msg)).await;
 
     Ok(())
 }
@@ -403,20 +359,26 @@ fn format_track(track: &TrackHandle) -> String {
     title.replace('`', "")
 }
 
-#[command]
-#[only_in(guilds)]
-#[aliases("rm")]
-#[description = "Remove tracks from the queue."]
-#[usage = "track_number {end_track_number_inclusive}"]
-async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+/// Remove tracks from queue
+#[poise::command(
+    slash_command,
+    prefix_command,
+    guild_only,
+    broadcast_typing,
+    aliases("rm")
+)]
+pub async fn remove(
+    ctx: PoiseContext<'_>,
+    #[description = "Track number to remove"] track: usize,
+    #[description = "Remove tracks between indices (inclusive)"] track_end: Option<usize>,
+) -> Result<(), Error> {
     // Only allow if user is in a voice channel
     {
-        match msg.get_voice(ctx).await {
+        match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
                 )
                 .await;
@@ -425,60 +387,31 @@ async fn remove(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         };
     }
     // Parse arguments
-    let start_idx = match args.single::<usize>() {
-        Ok(a) => a,
-        Err(_) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(MusicError::BadArgument.as_str()),
-            )
-            .await;
-            return Ok(());
-        }
-    };
-    let end_idx = args.single::<usize>().ok();
-    if start_idx == 0 || end_idx.filter(|i| i <= &start_idx).is_some() {
-        send_msg(
-            &ctx.http,
-            msg.channel_id,
-            SendMessage::Error(MusicError::BadIndex.as_str()),
-        )
-        .await;
-        return Ok(());
-    }
-    let start_idx = start_idx - 1;
-    let end_idx = match end_idx {
+    let start_idx = track - 1;
+    let end_idx = match track_end {
         Some(i) => i - 1,
         None => start_idx,
     };
 
     // Remove tracks
-    match remove_track(ctx, msg, start_idx, end_idx).await {
+    match remove_track(ctx, start_idx, end_idx).await {
         Ok(removed) => {
             if removed.len() == 1 {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Custom(format_update(&removed[0], PlayUpdate::Remove)),
                 )
                 .await;
             } else {
                 send_msg(
-                    &ctx.http,
-                    msg.channel_id,
+                    ctx,
                     SendMessage::Normal(&format!("Removed {} tracks", removed.len())),
                 )
                 .await;
             }
         }
         Err(e) => {
-            send_msg(
-                &ctx.http,
-                msg.channel_id,
-                SendMessage::Error(&e.to_string()),
-            )
-            .await;
+            send_msg(ctx, SendMessage::Error(&e.to_string())).await;
         }
     }
 

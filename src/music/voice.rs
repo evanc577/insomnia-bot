@@ -2,37 +2,31 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use serenity::async_trait;
-use serenity::client::Context;
-use serenity::model::channel::Message;
-use serenity::model::id::{ChannelId, GuildId};
-use serenity::prelude::*;
+use poise::serenity_prelude::{self as serenity, *};
 use songbird::Call;
 
 use crate::error::InsomniaError;
+use crate::PoiseContext;
 
 pub struct CallMutexMap;
 
-impl TypeMapKey for CallMutexMap {
+impl serenity::TypeMapKey for CallMutexMap {
     type Value = HashMap<GuildId, Arc<Mutex<()>>>;
 }
 
 #[async_trait]
 pub trait CanJoinVoice {
-    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
+    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>>;
 }
 
 #[async_trait]
-impl CanJoinVoice for Message {
-    async fn join_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
-        let mutex = get_lock(ctx, self)
+impl CanJoinVoice for PoiseContext<'_> {
+    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>> {
+        let guild_id = self.guild_id().ok_or(InsomniaError::GetVoice)?;
+        let manager = songbird::get(self.discord())
             .await
-            .map_err(|_| InsomniaError::JoinVoice)?;
-        let _lock = mutex.lock().await;
-
-        // Get guild ID and voice channel ID
-        let manager = songbird::get(ctx).await.ok_or(InsomniaError::JoinVoice)?;
-        let (guild_id, channel_id) = get_ids(ctx, self).await.ok_or(InsomniaError::JoinVoice)?;
+            .ok_or(InsomniaError::GetVoice)?;
+        let channel_id = get_channel_id(self).await.unwrap();
 
         // Join voice channel
         let (handler_lock, error) = manager.join(guild_id, channel_id).await;
@@ -53,54 +47,27 @@ impl CanJoinVoice for Message {
 
 #[async_trait]
 pub trait CanGetVoice {
-    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>>;
+    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>>;
 }
 
 #[async_trait]
-impl CanGetVoice for Message {
-    async fn get_voice(&self, ctx: &Context) -> Result<Arc<Mutex<Call>>> {
-        let mutex = get_lock(ctx, self)
+impl CanGetVoice for PoiseContext<'_> {
+    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>> {
+        let guild_id = self.guild_id().ok_or(InsomniaError::GetVoice)?;
+        let manager = songbird::get(self.discord())
             .await
-            .map_err(|_| InsomniaError::GetVoice)?;
-        let _lock = mutex.lock().await;
-
-        // Get guild ID and voice channel ID
-        let manager = songbird::get(ctx).await.ok_or(InsomniaError::GetVoice)?;
-        let (guild_id, _) = get_ids(ctx, self).await.ok_or(InsomniaError::GetVoice)?;
-
-        // Get voice channel
-        Ok(manager.get_or_insert(guild_id.into()))
+            .ok_or(InsomniaError::GetVoice)?;
+        Ok(manager.get_or_insert(guild_id))
     }
 }
 
-async fn get_ids(ctx: &Context, msg: &Message) -> Option<(GuildId, ChannelId)> {
-    let guild = msg.guild(&ctx.cache).await?;
-    let guild_id = msg.guild_id?;
-    let channel_id = guild
+async fn get_channel_id(ctx: &PoiseContext<'_>) -> Option<ChannelId> {
+    let channel_id = ctx
+        .guild()
+        .unwrap()
         .voice_states
-        .get(&msg.author.id)
+        .get(&ctx.author().id)
         .and_then(|voice_state| voice_state.channel_id)?;
 
-    Some((guild_id, channel_id))
-}
-
-async fn get_lock(ctx: &Context, msg: &Message) -> Result<Arc<Mutex<()>>> {
-    let (guild_id, _) = get_ids(ctx, msg).await.ok_or(InsomniaError::VoiceLock)?;
-    let data = ctx.data.read().await;
-    let map = data.get::<CallMutexMap>().ok_or(InsomniaError::VoiceLock)?;
-    let m = match map.get(&guild_id) {
-        Some(m) => m.clone(),
-        None => {
-            let m = Arc::new(Mutex::new(()));
-            drop(data);
-            let mut data = ctx.data.write().await;
-            let map = data
-                .get_mut::<CallMutexMap>()
-                .ok_or(InsomniaError::VoiceLock)?;
-            map.insert(guild_id, m.clone());
-            m
-        }
-    };
-
-    Ok(m)
+    Some(channel_id)
 }

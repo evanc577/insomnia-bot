@@ -140,7 +140,11 @@ fn format_track_link(track: &TrackHandle) -> Block {
         None => Span::Text(title),
     };
     let title_span = Span::Strong(vec![title_span]);
-    Block::Paragraph(vec![Span::Text(artist), Span::Text(" — ".to_string()), title_span])
+    Block::Paragraph(vec![
+        Span::Text(artist),
+        Span::Text(" — ".to_string()),
+        title_span,
+    ])
 }
 
 /// Only returns the track name, artist and other info will be placed in separate fields

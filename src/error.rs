@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt::Display;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum InsomniaError {
     ConfigToken,
     JoinVoice,
