@@ -36,6 +36,7 @@ pub async fn send_msg_http(http: &Http, channel_id: ChannelId, message: SendMess
 
 pub async fn send_msg(ctx: PoiseContext<'_>, message: SendMessage<'_>) {
     ctx.send(|m| {
+        m.ephemeral(matches!(message, SendMessage::Error(_)));
         m.embed(|e| {
             match message {
                 SendMessage::Normal(s) => {

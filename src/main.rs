@@ -11,7 +11,6 @@ use tokio::signal::unix::{signal, SignalKind};
 
 use crate::config::{Config, CONFIG_FILE};
 use crate::music::queue::QueueMutexMap;
-use crate::music::voice::CallMutexMap;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, Error>;
@@ -113,7 +112,6 @@ async fn main() {
     let mut client = framework.client();
     {
         let mut data = client.data.write().await;
-        data.insert::<CallMutexMap>(HashMap::new());
         data.insert::<QueueMutexMap>(HashMap::new());
     }
 

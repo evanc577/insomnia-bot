@@ -29,19 +29,8 @@ pub async fn play(
     #[rename = "song_or_url"]
     arg: Option<String>,
 ) -> Result<(), Error> {
-    // Only allow if user is in a voice channel
-    {
-        match ctx.get_voice().await {
-            Ok(h) => h,
-            Err(_) => {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-        };
+    if !ctx.in_voice_and_send_msg().await {
+        return Ok(());
     }
 
     if let Some(arg) = arg {
@@ -99,25 +88,14 @@ pub async fn song(
     #[rename = "song"]
     arg: String,
 ) -> Result<(), Error> {
+    if !ctx.in_voice_and_send_msg().await {
+        return Ok(());
+    }
+
     add_song(&ctx, arg).await
 }
 
 async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
-    // Only allow if user is in a voice channel
-    {
-        match ctx.get_voice().await {
-            Ok(h) => h,
-            Err(_) => {
-                send_msg(
-                    *ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-        };
-    }
-
     if let Some(url) = youtube_music::yt_music_song_search(song).await {
         ctx.defer_or_broadcast().await?;
         let _ = add_track(*ctx, vec![Query::Url(url.to_string())]).await;
@@ -144,19 +122,8 @@ pub async fn video(
     #[rename = "query_or_url"]
     arg: String,
 ) -> Result<(), Error> {
-    // Only allow if user is in a voice channel
-    {
-        match ctx.get_voice().await {
-            Ok(h) => h,
-            Err(_) => {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-        };
+    if !ctx.in_voice_and_send_msg().await {
+        return Ok(());
     }
 
     ctx.defer_or_broadcast().await?;
@@ -180,19 +147,8 @@ pub async fn album(
     #[rename = "album"]
     arg: String,
 ) -> Result<(), Error> {
-    // Only allow if user is in a voice channel
-    {
-        match ctx.get_voice().await {
-            Ok(h) => h,
-            Err(_) => {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-        };
+    if !ctx.in_voice_and_send_msg().await {
+        return Ok(());
     }
 
     // Otherwise search YouTube Music
@@ -214,19 +170,20 @@ pub async fn pause(ctx: PoiseContext<'_>) -> Result<(), Error> {
     if let Ok(handler_lock) = ctx.join_voice().await {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
-        if let Some(track) = queue.current() {
-            if let Ok(info) = track.get_info().await {
-                if info.playing != PlayMode::Play {
-                    send_msg(ctx, SendMessage::Error(MusicError::NoPlayingTrack.as_str())).await;
-                    return Ok(());
-                }
+        if_chain! {
+            if let Some(track) = queue.current();
+            if let Ok(info) = track.get_info().await;
+            if info.playing == PlayMode::Play;
+            then {
+                track.pause()?;
+                send_msg(
+                    ctx,
+                    SendMessage::Custom(format_update(&track, PlayUpdate::Pause)),
+                )
+                .await;
+            } else {
+                send_msg(ctx, SendMessage::Error(MusicError::NoPlayingTrack.as_str())).await;
             }
-            let _ = track.pause();
-            send_msg(
-                ctx,
-                SendMessage::Custom(format_update(&track, PlayUpdate::Pause)),
-            )
-            .await;
         }
     } else {
         send_msg(
@@ -371,20 +328,10 @@ pub async fn remove(
     #[description = "Track number to remove"] track: usize,
     #[description = "Remove tracks between indices (inclusive)"] track_end: Option<usize>,
 ) -> Result<(), Error> {
-    // Only allow if user is in a voice channel
-    {
-        match ctx.get_voice().await {
-            Ok(h) => h,
-            Err(_) => {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
-                return Ok(());
-            }
-        };
+    if !ctx.in_voice_and_send_msg().await {
+        return Ok(());
     }
+
     // Parse arguments
     let start_idx = track - 1;
     let end_idx = match track_end {

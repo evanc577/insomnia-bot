@@ -1,18 +1,13 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use poise::serenity_prelude::{self as serenity, *};
+use poise::serenity_prelude::*;
 use songbird::Call;
 
+use super::error::MusicError;
 use crate::error::InsomniaError;
+use crate::message::{send_msg, SendMessage};
 use crate::PoiseContext;
-
-pub struct CallMutexMap;
-
-impl serenity::TypeMapKey for CallMutexMap {
-    type Value = HashMap<GuildId, Arc<Mutex<()>>>;
-}
 
 #[async_trait]
 pub trait CanJoinVoice {
@@ -48,6 +43,7 @@ impl CanJoinVoice for PoiseContext<'_> {
 #[async_trait]
 pub trait CanGetVoice {
     async fn get_voice(&self) -> Result<Arc<Mutex<Call>>>;
+    async fn in_voice_and_send_msg(&self) -> bool;
 }
 
 #[async_trait]
@@ -59,6 +55,20 @@ impl CanGetVoice for PoiseContext<'_> {
             .await
             .ok_or(InsomniaError::GetVoice)?;
         Ok(manager.get_or_insert(guild_id))
+    }
+
+    async fn in_voice_and_send_msg(&self) -> bool {
+        match get_channel_id(self).await {
+            Some(_) => true,
+            None => {
+                send_msg(
+                    *self,
+                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
+                )
+                .await;
+                false
+            }
+        }
     }
 }
 
