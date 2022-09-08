@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::stream::StreamExt;
+use poise::serenity_prelude as serenity;
 use serenity::model::id::GuildId;
-use serenity::prelude::*;
+use serenity::*;
 use songbird::input::{self, Restartable};
 use songbird::tracks::{Track, TrackHandle};
 use songbird::{Event, TrackEvent};

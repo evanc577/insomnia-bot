@@ -2,10 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serenity::async_trait;
+use poise::serenity_prelude as serenity;
 use serenity::http::Http;
-use serenity::model::prelude::*;
-use serenity::prelude::*;
+use serenity::{async_trait, *};
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
 
 use super::message::{format_update, PlayUpdate};

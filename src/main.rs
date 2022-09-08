@@ -19,7 +19,7 @@ pub type PoiseContext<'a> = poise::Context<'a, Data, Error>;
 pub struct Data {}
 
 /// Registers slash commands in this guild or globally
-#[poise::command(prefix_command, required_permissions = "MANAGE_GUILD", hide_in_help)]
+#[poise::command(prefix_command, hide_in_help, owners_only)]
 async fn register(ctx: PoiseContext<'_>) -> Result<(), Error> {
     poise::builtins::register_application_commands_buttons(ctx).await?;
     println!("Registering...");

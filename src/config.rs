@@ -2,6 +2,7 @@ use std::{env, fs};
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 use serenity::utils::Color;
 

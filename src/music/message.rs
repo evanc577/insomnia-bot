@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
+use poise::serenity_prelude as serenity;
 use serenity::builder::CreateEmbed;
 use songbird::tracks::TrackHandle;
 
