@@ -12,7 +12,7 @@ RUN dnf install -y python3-devel
 
 # Install devel tools
 RUN dnf group install -y "Development Tools"
-RUN dnf install -y openssl-devel
+RUN dnf install -y openssl-devel cmake opus-devel
 
 # Compile
 WORKDIR /insomnia_bot
