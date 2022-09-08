@@ -34,15 +34,7 @@ async fn help(
     #[autocomplete = "poise::builtins::autocomplete_command"]
     command: Option<String>,
 ) -> Result<(), Error> {
-    poise::builtins::help(
-        ctx,
-        command.as_deref(),
-        poise::builtins::HelpConfiguration {
-            show_context_menu_commands: true,
-            ..Default::default()
-        },
-    )
-    .await?;
+    poise::builtins::help(ctx, command.as_deref(), Default::default()).await?;
     Ok(())
 }
 

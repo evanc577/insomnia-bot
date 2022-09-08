@@ -20,7 +20,7 @@ use crate::music::error::MusicError;
 use crate::music::queue::{add_track, Query};
 use crate::{Error, PoiseContext};
 
-/// Play a song via YouTube Music or URL. If no argument is given, resume the paused track.
+/// Play a song via YouTube Music or URL, if no argument is given, resume the paused track
 #[poise::command(slash_command, prefix_command, guild_only, broadcast_typing)]
 pub async fn play(
     ctx: PoiseContext<'_>,
