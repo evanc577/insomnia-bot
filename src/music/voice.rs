@@ -22,11 +22,11 @@ pub trait CanJoinVoice {
 #[async_trait]
 impl CanJoinVoice for PoiseContext<'_> {
     async fn join_voice(&self) -> Result<Arc<Mutex<Call>>> {
-        let guild_id = self.guild_id().ok_or(InsomniaError::GetVoice)?;
+        let guild_id = self.guild_id().ok_or(InsomniaError::JoinVoice)?;
         let manager = songbird::get(self.discord())
             .await
             .ok_or(InsomniaError::GetVoice)?;
-        let channel_id = get_channel_id(self).await.unwrap();
+        let channel_id = get_channel_id(self).await.ok_or(InsomniaError::JoinVoice)?;
 
         // Join voice channel
         let (handler_lock, error) = manager.join(guild_id, channel_id).await;
@@ -53,6 +53,7 @@ pub trait CanGetVoice {
 #[async_trait]
 impl CanGetVoice for PoiseContext<'_> {
     async fn get_voice(&self) -> Result<Arc<Mutex<Call>>> {
+        get_channel_id(self).await.ok_or(InsomniaError::GetVoice)?;
         let guild_id = self.guild_id().ok_or(InsomniaError::GetVoice)?;
         let manager = songbird::get(self.discord())
             .await
@@ -63,8 +64,7 @@ impl CanGetVoice for PoiseContext<'_> {
 
 async fn get_channel_id(ctx: &PoiseContext<'_>) -> Option<ChannelId> {
     let channel_id = ctx
-        .guild()
-        .unwrap()
+        .guild()?
         .voice_states
         .get(&ctx.author().id)
         .and_then(|voice_state| voice_state.channel_id)?;

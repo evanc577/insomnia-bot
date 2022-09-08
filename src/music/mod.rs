@@ -29,7 +29,6 @@ pub async fn play(
     #[rename = "song_or_url"]
     arg: Option<String>,
 ) -> Result<(), Error> {
-    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
         match ctx.get_voice().await {
@@ -46,7 +45,7 @@ pub async fn play(
     }
 
     if let Some(arg) = arg {
-        // Otherwise search/play the requested track
+        ctx.defer_or_broadcast().await?;
         if let Ok(url) = url::Url::parse(&arg) {
             if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
             } else {
@@ -104,7 +103,6 @@ pub async fn song(
 }
 
 async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
-    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
         match ctx.get_voice().await {
@@ -121,6 +119,7 @@ async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
     }
 
     if let Some(url) = youtube_music::yt_music_song_search(song).await {
+        ctx.defer_or_broadcast().await?;
         let _ = add_track(*ctx, vec![Query::Url(url.to_string())]).await;
     } else {
         send_msg(*ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
@@ -145,7 +144,6 @@ pub async fn video(
     #[rename = "query_or_url"]
     arg: String,
 ) -> Result<(), Error> {
-    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
         match ctx.get_voice().await {
@@ -161,6 +159,7 @@ pub async fn video(
         };
     }
 
+    ctx.defer_or_broadcast().await?;
     if let Ok(url) = url::Url::parse(&arg) {
         // If URL is given, play URL
         let _ = add_track(ctx, vec![Query::Url(url.to_string())]).await;
@@ -181,7 +180,6 @@ pub async fn album(
     #[rename = "album"]
     arg: String,
 ) -> Result<(), Error> {
-    ctx.defer_or_broadcast().await.unwrap();
     // Only allow if user is in a voice channel
     {
         match ctx.get_voice().await {
@@ -199,6 +197,7 @@ pub async fn album(
 
     // Otherwise search YouTube Music
     if let Some(url) = youtube_music::yt_music_album_search(arg).await {
+        ctx.defer_or_broadcast().await?;
         if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
             return Ok(());
         }
