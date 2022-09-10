@@ -1,18 +1,16 @@
 ###########
 # Builder #
 ###########
-FROM almalinux:8 AS builder
+FROM almalinux:9 AS builder
 
 # Install Rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install Python
-RUN dnf install -y python3-devel
-
 # Install devel tools
 RUN dnf group install -y "Development Tools"
-RUN dnf install -y openssl-devel cmake opus-devel
+RUN dnf config-manager --set-enabled crb
+RUN dnf install -y python3-devel cmake opus-devel
 
 # Compile
 WORKDIR /insomnia_bot
@@ -25,15 +23,17 @@ RUN cargo build --release
 ##########
 # Runner #
 ##########
-FROM almalinux:8
+FROM almalinux:9-minimal
 
-RUN dnf install -y 'dnf-command(config-manager)' epel-release \
-    https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-8.noarch.rpm
-RUN dnf config-manager --set-enable powertools
-RUN dnf install -y ffmpeg python3 python3-pip
+RUN microdnf install -y epel-release
+RUN curl -L https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm \
+    -o /tmp/rpmfusion-free.rpm && \
+    rpm -i /tmp/rpmfusion-free.rpm && rm /tmp/rpmfusion-free.rpm
+RUN curl -L https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-$(rpm -E %rhel).noarch.rpm \
+    -o /tmp/rpmfusion-nonfree.rpm && \
+    rpm -i /tmp/rpmfusion-nonfree.rpm && rm /tmp/rpmfusion-nonfree.rpm
+RUN microdnf install -y ffmpeg python3 python3-pip
 RUN pip3 install yt-dlp ytmusicapi
-RUN ln -s /usr/local/bin/yt-dlp /usr/local/bin/youtube-dl
 
 WORKDIR /insomnia_bot
 COPY --from=builder /insomnia_bot/target/release/insomnia-bot ./
