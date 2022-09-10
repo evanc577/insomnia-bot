@@ -5,9 +5,10 @@ use markdown::{generate_markdown, Block, Span};
 use once_cell::sync::Lazy;
 use poise::serenity_prelude as serenity;
 use serenity::builder::CreateEmbed;
+use serenity::Color;
 use songbird::tracks::TrackHandle;
 
-use crate::config::EMBED_COLOR;
+use crate::config::{EMBED_COLOR, EMBED_PLAYING_COLOR};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PlayUpdate {
@@ -17,6 +18,7 @@ pub enum PlayUpdate {
     Resume,
     Skip,
     Remove,
+    Stop,
 }
 
 impl PlayUpdate {
@@ -38,6 +40,13 @@ impl PlayUpdate {
             _ => None,
         }
     }
+
+    fn color(&self) -> Color {
+        match self {
+            Self::Play(..) => *EMBED_PLAYING_COLOR,
+            _ => *EMBED_COLOR,
+        }
+    }
 }
 
 impl Display for PlayUpdate {
@@ -49,9 +58,22 @@ impl Display for PlayUpdate {
             Self::Resume => "Resumed",
             Self::Skip => "Skipped",
             Self::Remove => "Removed",
+            Self::Stop => "Stopped",
         };
         write!(f, "{}", text)
     }
+}
+
+pub fn format_update_title_only(
+    update: PlayUpdate,
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send> {
+    Box::new(move |e| {
+        let title_span = Span::Text(update.to_string());
+        let title_block = Block::Paragraph(vec![title_span]);
+        let title_text = generate_markdown(vec![title_block]);
+        e.title(title_text);
+        e.color(update.color());
+    })
 }
 
 pub fn format_update(
@@ -77,7 +99,13 @@ pub fn format_update(
         if update.detailed() {
             add_details(e, track, update);
         }
-        e.color(*EMBED_COLOR);
+
+        // Thumbnail
+        if let Some(url) = &track.metadata().thumbnail {
+            e.thumbnail(url);
+        }
+
+        e.color(update.color());
     })
 }
 
@@ -104,18 +132,16 @@ fn add_details(embed: &mut CreateEmbed, track: &TrackHandle, update: PlayUpdate)
         )])]);
     fields.push((duration_name_text, duration_value_text, true));
 
-    // Thumbnail
-    if let Some(url) = &track.metadata().thumbnail {
-        embed.thumbnail(url);
-    }
-
     // Queue size
     if let Some(n) = update.queue_size() {
-        let queue_name_text =
-            generate_markdown(vec![Block::Paragraph(vec![QUEUE_NAME_SPAN.clone()])]);
-        let queue_value_text =
-            generate_markdown(vec![Block::Paragraph(vec![Span::Text(n.to_string())])]);
-        fields.push((queue_name_text, queue_value_text, true));
+        if n >= 2 {
+            let queue_name_text =
+                generate_markdown(vec![Block::Paragraph(vec![QUEUE_NAME_SPAN.clone()])]);
+            let queue_value_text = generate_markdown(vec![Block::Paragraph(vec![Span::Text(
+                (n - 1).to_string(),
+            )])]);
+            fields.push((queue_name_text, queue_value_text, true));
+        }
     }
 
     // Add details to embed

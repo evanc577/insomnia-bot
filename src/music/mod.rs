@@ -11,7 +11,7 @@ mod youtube_playlist;
 use if_chain::if_chain;
 use songbird::tracks::{PlayMode, TrackHandle};
 
-use self::message::{format_update, PlayUpdate};
+use self::message::{format_update, format_update_title_only, PlayUpdate};
 use self::queue::remove_track;
 use self::voice::{CanGetVoice, CanJoinVoice};
 use self::youtube_playlist::add_youtube_playlist;
@@ -96,8 +96,8 @@ pub async fn song(
 }
 
 async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
+    ctx.defer_or_broadcast().await?;
     if let Some(url) = youtube_music::yt_music_song_search(song).await {
-        ctx.defer_or_broadcast().await?;
         let _ = add_track(*ctx, vec![Query::Url(url.to_string())]).await;
     } else {
         send_msg(*ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
@@ -152,8 +152,8 @@ pub async fn album(
     }
 
     // Otherwise search YouTube Music
+    ctx.defer_or_broadcast().await?;
     if let Some(url) = youtube_music::yt_music_album_search(arg).await {
-        ctx.defer_or_broadcast().await?;
         if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
             return Ok(());
         }
@@ -233,6 +233,11 @@ pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
             let _ = track.stop();
         }
         let _ = queue.stop();
+        send_msg(
+            ctx,
+            SendMessage::Custom(format_update_title_only(PlayUpdate::Stop)),
+        )
+        .await;
     } else {
         send_msg(
             ctx,

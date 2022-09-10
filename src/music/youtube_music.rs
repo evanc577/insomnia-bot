@@ -7,10 +7,10 @@ enum SearchType {
 }
 
 impl SearchType {
-    fn result_type(&self) -> &str {
+    fn result_type(&self) -> impl Iterator<Item = &&'static str> {
         match self {
-            SearchType::Song => "song",
-            SearchType::Album => "album",
+            SearchType::Song => ["song", "video"].iter(),
+            SearchType::Album => ["album"].iter(),
         }
     }
 
@@ -88,46 +88,43 @@ async fn search_id(query: String, search_type: SearchType) -> Option<String> {
     let search_results: Vec<YTMusicSearchResult> =
         serde_json::from_str(&search_results_json).ok()?;
 
+    let check_results = |result: &YTMusicSearchResult| {
+        if search_type
+            .result_type()
+            .any(|&t| t == result.result_type.to_lowercase())
+        {
+            match search_type {
+                SearchType::Song => {
+                    if result.video_id.is_some() {
+                        return Some(result.video_id.clone());
+                    }
+                }
+                SearchType::Album => {
+                    if result.browse_id.is_some() {
+                        return Some(result.browse_id.clone());
+                    }
+                }
+            }
+        }
+        None
+    };
+
     // Check top results
-    for result in search_results
+    if let Some(result) = search_results
         .iter()
         .filter(|r| r.category.to_lowercase() == "top result")
+        .find_map(|r| check_results(r))
     {
-        if result.result_type.to_lowercase() == search_type.result_type() {
-            match search_type {
-                SearchType::Song => {
-                    if result.video_id.is_some() {
-                        return result.video_id.clone();
-                    }
-                }
-                SearchType::Album => {
-                    if result.browse_id.is_some() {
-                        return result.browse_id.clone();
-                    }
-                }
-            }
-        }
+        return result;
     }
 
-    // Check songs
-    for result in search_results
+    // Check songs/albums
+    if let Some(result) = search_results
         .iter()
         .filter(|r| r.category.to_lowercase() == search_type.category())
+        .find_map(|r| check_results(r))
     {
-        if result.result_type.to_lowercase() == search_type.result_type() {
-            match search_type {
-                SearchType::Song => {
-                    if result.video_id.is_some() {
-                        return result.video_id.clone();
-                    }
-                }
-                SearchType::Album => {
-                    if result.browse_id.is_some() {
-                        return result.browse_id.clone();
-                    }
-                }
-            }
-        }
+        return result;
     }
 
     None
