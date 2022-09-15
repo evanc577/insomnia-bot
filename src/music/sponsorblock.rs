@@ -46,16 +46,7 @@ async fn get_segments(id: &str) -> Option<Vec<(f64, f64)>> {
 
     let resp = CLIENT
         .get(URL)
-        .query(&[
-            ("videoID", id),
-            ("category", "sponsor"),
-            ("category", "selfpromo"),
-            ("category", "interaction"),
-            ("category", "intro"),
-            ("category", "outro"),
-            ("category", "preview"),
-            ("category", "music_offtopic"),
-        ])
+        .query(&[("videoID", id), ("category", "music_offtopic")])
         .send()
         .await
         .ok()?;
