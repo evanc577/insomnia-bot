@@ -13,10 +13,10 @@ use songbird::{Event, TrackEvent};
 
 use super::error::MusicError;
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
-use super::message::{format_update, PlayUpdate};
+use super::message::{format_add_playlist, format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
 use crate::error::InsomniaError;
-use crate::message::{send_msg, SendMessage};
+use crate::message::{edit_reply, send_msg, SendMessage};
 use crate::music::sponsorblock::get_skips;
 use crate::music::youtube_loudness::get_loudness;
 use crate::PoiseContext;
@@ -26,7 +26,7 @@ pub enum Query {
     Url(String),
 }
 
-pub async fn add_track(ctx: PoiseContext<'_>, query: Vec<Query>) -> Result<()> {
+pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()> {
     let mutex = match get_lock(ctx).await {
         Err(_) => return Ok(()),
         Ok(m) => m,
@@ -51,7 +51,8 @@ pub async fn add_track(ctx: PoiseContext<'_>, query: Vec<Query>) -> Result<()> {
         !handler.queue().is_empty()
     };
 
-    let mut tracks = futures::stream::iter(query.into_iter().enumerate().map(|(i, q)| {
+    let num_queries = queries.len();
+    let mut tracks = futures::stream::iter(queries.into_iter().enumerate().map(|(i, q)| {
         let lazy = lazy || (i != 0);
         create_track(ctx, q, lazy)
     }))
@@ -60,6 +61,10 @@ pub async fn add_track(ctx: PoiseContext<'_>, query: Vec<Query>) -> Result<()> {
     if let Ok(handler_lock) = ctx.join_voice().await {
         let mut handler = handler_lock.lock().await;
         handler.remove_all_global_events();
+
+        // If adding more than 1 track, keep track of previously queued tracks
+        let mut reply_handle: Option<poise::ReplyHandle> = None;
+        let mut pushed_tracks = Vec::with_capacity(num_queries);
 
         while let Some(x) = tracks.next().await {
             if let Some((track, track_handle, sb_time)) = x {
@@ -72,16 +77,35 @@ pub async fn add_track(ctx: PoiseContext<'_>, query: Vec<Query>) -> Result<()> {
                     let _ = queue[1].make_playable();
                 }
 
-                let update = match handler.queue().current_queue().len() {
-                    1 => PlayUpdate::Play(queue.len(), sb_time),
-                    _ => PlayUpdate::Add(queue.len()),
-                };
-                send_msg(
-                    ctx,
-                    SendMessage::Custom(format_update(&track_handle, update)),
-                )
-                .await;
+                pushed_tracks.push(track_handle.clone());
+                let fmt = || format_add_playlist(pushed_tracks.clone(), num_queries, false);
+                if let Some(ref reply_handle) = reply_handle {
+                    // If a previous reply has been sent, edit the reply
+                    edit_reply(ctx, reply_handle.clone(), SendMessage::Custom(fmt())).await;
+                } else {
+                    let update = match handler.queue().current_queue().len() {
+                        1 => PlayUpdate::Play(queue.len(), sb_time),
+                        _ => PlayUpdate::Add(queue.len()),
+                    };
+                    if num_queries != 1 {
+                        // If first of many queued tracks, send an initial reply
+                        reply_handle = Some(send_msg(ctx, SendMessage::Custom(fmt())).await);
+                    }
+                    if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
+                        send_msg(
+                            ctx,
+                            SendMessage::Custom(format_update(&track_handle, update)),
+                        )
+                        .await;
+                    }
+                }
             }
+        }
+
+        // Finish editing reply once all tracks are queued
+        if let Some(ref reply_handle) = reply_handle {
+            let fmt = || format_add_playlist(pushed_tracks.clone(), num_queries, true);
+            edit_reply(ctx, reply_handle.clone(), SendMessage::Custom(fmt())).await;
         }
     } else {
         send_msg(

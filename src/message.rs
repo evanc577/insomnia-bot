@@ -1,4 +1,4 @@
-use poise::serenity_prelude as serenity;
+use poise::{serenity_prelude as serenity, ReplyHandle};
 use serenity::builder::CreateEmbed;
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
@@ -34,8 +34,30 @@ pub async fn send_msg_http(http: &Http, channel_id: ChannelId, message: SendMess
         .unwrap();
 }
 
-pub async fn send_msg(ctx: PoiseContext<'_>, message: SendMessage<'_>) {
+pub async fn send_msg<'a>(ctx: PoiseContext<'a>, message: SendMessage<'a>) -> ReplyHandle<'a> {
     ctx.send(|m| {
+        m.ephemeral(matches!(message, SendMessage::Error(_)));
+        m.embed(|e| {
+            match message {
+                SendMessage::Normal(s) => {
+                    e.description(s);
+                    e.color(*EMBED_COLOR);
+                }
+                SendMessage::Error(s) => {
+                    e.description(s);
+                    e.color(*EMBED_ERROR_COLOR);
+                }
+                SendMessage::Custom(f) => f(e),
+            }
+            e
+        })
+    })
+    .await
+    .unwrap()
+}
+
+pub async fn edit_reply(ctx: PoiseContext<'_>, reply_handle: ReplyHandle<'_>, message: SendMessage<'_>) {
+    reply_handle.edit(ctx, |m| {
         m.ephemeral(matches!(message, SendMessage::Error(_)));
         m.embed(|e| {
             match message {

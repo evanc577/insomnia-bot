@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::music::queue::{add_track, Query};
+use crate::music::queue::{add_tracks, Query};
 use crate::PoiseContext;
 
 static YT_ID_RE: Lazy<Regex> = Lazy::new(|| {
@@ -26,7 +26,7 @@ pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Option<us
         .iter()
         .map(|t| Query::Url(format!("https://www.youtube.com/watch?v={}", t.id)))
         .collect();
-    let _ = add_track(ctx, urls).await;
+    let _ = add_tracks(ctx, urls).await;
 
     Some(num_tracks)
 }

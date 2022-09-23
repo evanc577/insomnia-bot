@@ -11,13 +11,12 @@ mod youtube_playlist;
 use if_chain::if_chain;
 use songbird::tracks::{PlayMode, TrackHandle};
 
+use self::error::MusicError;
 use self::message::{format_update, format_update_title_only, PlayUpdate};
-use self::queue::remove_track;
+use self::queue::{add_tracks, remove_track, Query};
 use self::voice::{CanGetVoice, CanJoinVoice};
 use self::youtube_playlist::add_youtube_playlist;
 use crate::message::{send_msg, SendMessage};
-use crate::music::error::MusicError;
-use crate::music::queue::{add_track, Query};
 use crate::{Error, PoiseContext};
 
 /// Play a song via YouTube Music or URL, if no argument is given, resume the paused track
@@ -39,7 +38,7 @@ pub async fn play(
             if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
             } else {
                 // If URL is given, play URL
-                let _ = add_track(ctx, vec![Query::Url(url.to_string())]).await;
+                let _ = add_tracks(ctx, vec![Query::Url(url.to_string())]).await;
             }
         } else {
             // Otherwise search YouTube Music
@@ -98,7 +97,7 @@ pub async fn song(
 async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
     ctx.defer_or_broadcast().await?;
     if let Some(url) = youtube_music::yt_music_song_search(song).await {
-        let _ = add_track(*ctx, vec![Query::Url(url.to_string())]).await;
+        let _ = add_tracks(*ctx, vec![Query::Url(url.to_string())]).await;
     } else {
         send_msg(*ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
         return Ok(());
@@ -129,10 +128,10 @@ pub async fn video(
     ctx.defer_or_broadcast().await?;
     if let Ok(url) = url::Url::parse(&arg) {
         // If URL is given, play URL
-        let _ = add_track(ctx, vec![Query::Url(url.to_string())]).await;
+        let _ = add_tracks(ctx, vec![Query::Url(url.to_string())]).await;
     } else {
         // Otherwise search YouTube Music
-        let _ = add_track(ctx, vec![Query::Search(arg)]).await;
+        let _ = add_tracks(ctx, vec![Query::Search(arg)]).await;
     }
 
     Ok(())
@@ -232,7 +231,7 @@ pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
         if let Some(track) = queue.current() {
             let _ = track.stop();
         }
-        let _ = queue.stop();
+        queue.stop();
         send_msg(
             ctx,
             SendMessage::Custom(format_update_title_only(PlayUpdate::Stop)),

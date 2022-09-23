@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use markdown::{generate_markdown, Block, Span};
@@ -10,7 +11,7 @@ use songbird::tracks::TrackHandle;
 
 use crate::config::{EMBED_COLOR, EMBED_PLAYING_COLOR};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlayUpdate {
     Add(usize),
     Play(usize, Option<Duration>),
@@ -64,9 +65,28 @@ impl Display for PlayUpdate {
     }
 }
 
-pub fn format_update_title_only(
-    update: PlayUpdate,
-) -> Box<dyn FnOnce(&mut CreateEmbed) + Send> {
+pub fn format_add_playlist<'a>(
+    tracks: Vec<TrackHandle>,
+    total_tracks: usize,
+    finished: bool,
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + 'a> {
+    Box::new(move |e| {
+        let title_text = if finished {
+            format!("Finished Queuing {}/{} tracks", tracks.len(), total_tracks)
+        } else {
+            format!("Queuing {}/{} tracks", tracks.len(), total_tracks)
+        };
+        let title_span = Span::Text(title_text);
+        let title_block = Block::Paragraph(vec![title_span]);
+        let title_text = generate_markdown(vec![title_block]);
+        e.title(title_text);
+
+        let description: Vec<_> = tracks.iter().map(format_track_link).collect();
+        e.description(generate_markdown(description));
+    })
+}
+
+pub fn format_update_title_only(update: PlayUpdate) -> Box<dyn FnOnce(&mut CreateEmbed) + Send> {
     Box::new(move |e| {
         let title_span = Span::Text(update.to_string());
         let title_block = Block::Paragraph(vec![title_span]);
@@ -206,7 +226,7 @@ fn format_track_duration(track: &TrackHandle, sb_time: Option<Duration>) -> Span
 
     let mut ret = format_duration(duration);
     if let Some(t) = sb_time {
-        ret.push_str(&format!(" ({})", format_duration(duration - t)));
+        let _ = write!(ret, " ({})", format_duration(duration - t));
     }
 
     Span::Text(ret)
@@ -222,9 +242,9 @@ fn format_duration(t: Duration) -> String {
     // compute strings
     let mut ret = "".to_owned();
     if hours != 0 {
-        ret.push_str(&format!("{}:{:02}:{:02}", hours, mins, secs));
+        let _ = write!(ret, "{}:{:02}:{:02}", hours, mins, secs);
     } else {
-        ret.push_str(&format!("{}:{:02}", mins, secs));
+        let _ = write!(ret, "{}:{:02}", mins, secs);
     }
 
     ret
