@@ -253,7 +253,7 @@ pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
 pub async fn list(
     ctx: PoiseContext<'_>,
     #[rename = "index"]
-    #[description = "List starting from this index in queue"]
+    #[description = "start listing from this index in queue, use \"end\" to list end of queue"]
     arg: Option<String>,
 ) -> Result<(), Error> {
     const NUM_TRACKS: usize = 25;
@@ -270,6 +270,7 @@ pub async fn list(
         };
         let start = match arg.to_lowercase().as_str() {
             "max" => None,
+            "end" => None,
             s => Some(s.parse::<usize>().unwrap_or(0)),
         };
 
@@ -283,6 +284,7 @@ pub async fn list(
         // Build output string
         let list = queue
             .iter()
+            .skip(start - 1)
             .zip(start..start + NUM_TRACKS)
             .map(|(t, i)| format!("{:>2}: {}", i, format_track(t)))
             .collect::<Vec<_>>()
