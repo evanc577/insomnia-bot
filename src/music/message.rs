@@ -1,5 +1,4 @@
-use std::fmt::Display;
-use std::fmt::Write as _;
+use std::fmt::{Display, Write as _};
 use std::time::Duration;
 
 use markdown::{generate_markdown, Block, Span};
@@ -66,22 +65,33 @@ impl Display for PlayUpdate {
 }
 
 pub fn format_add_playlist<'a>(
-    tracks: Vec<TrackHandle>,
+    tracks: impl ExactSizeIterator + Iterator<Item = TrackHandle> + Send + 'a,
+    num_queued_tracks: usize,
     total_tracks: usize,
     finished: bool,
 ) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + 'a> {
     Box::new(move |e| {
         let title_text = if finished {
-            format!("Finished Queuing {}/{} tracks", tracks.len(), total_tracks)
+            format!(
+                "Finished Queuing {}/{} tracks",
+                num_queued_tracks, total_tracks
+            )
         } else {
-            format!("Queuing {}/{} tracks", tracks.len(), total_tracks)
+            format!("Queuing {}/{} tracks", num_queued_tracks, total_tracks)
         };
         let title_span = Span::Text(title_text);
         let title_block = Block::Paragraph(vec![title_span]);
         let title_text = generate_markdown(vec![title_block]);
         e.title(title_text);
 
-        let description: Vec<_> = tracks.iter().map(format_track_link).collect();
+        let mut description = Vec::with_capacity(tracks.len() + 1);
+        if num_queued_tracks > tracks.len() {
+            description.push(Block::Paragraph(vec![Span::Emphasis(vec![Span::Text(
+                format!("{} tracks omitted", num_queued_tracks - tracks.len()),
+            )])]));
+        }
+
+        description.extend(tracks.map(|t| format_track_link(&t)));
         e.description(generate_markdown(description));
     })
 }

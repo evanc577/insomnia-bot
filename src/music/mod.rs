@@ -35,10 +35,8 @@ pub async fn play(
     if let Some(arg) = arg {
         ctx.defer_or_broadcast().await?;
         if let Ok(url) = url::Url::parse(&arg) {
-            if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
-            } else {
-                // If URL is given, play URL
-                let _ = add_tracks(ctx, vec![Query::Url(url.to_string())]).await;
+            if let Err(e) = add_youtube_playlist(ctx, url.as_str()).await {
+                let _ = send_msg(ctx, SendMessage::Error(&e.to_string())).await;
             }
         } else {
             // Otherwise search YouTube Music
@@ -153,9 +151,10 @@ pub async fn album(
     // Otherwise search YouTube Music
     ctx.defer_or_broadcast().await?;
     if let Some(url) = youtube_music::yt_music_album_search(arg).await {
-        if add_youtube_playlist(ctx, url.as_str()).await.is_some() {
-            return Ok(());
+        if let Err(e) = add_youtube_playlist(ctx, url.as_str()).await {
+            let _ = send_msg(ctx, SendMessage::Error(&e.to_string())).await;
         }
+        return Ok(());
     }
 
     send_msg(ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;

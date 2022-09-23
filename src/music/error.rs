@@ -6,6 +6,7 @@ use std::fmt::Display;
 pub enum MusicError {
     BadArgument,
     BadIndex,
+    BadPlaylist,
     BadSource,
     NoPausedTrack,
     NoPlayingTrack,
@@ -18,6 +19,7 @@ impl MusicError {
         match self {
             Self::BadArgument => "Invalid argument",
             Self::BadIndex => "Invalid index",
+            Self::BadPlaylist => "Invalid or empty playlist",
             Self::BadSource => "Could not load source",
             Self::NoPausedTrack => "No currently paused track",
             Self::NoPlayingTrack => "No currently playing track",

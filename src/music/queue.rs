@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,7 +16,7 @@ use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use super::message::{format_add_playlist, format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
 use crate::error::InsomniaError;
-use crate::message::{edit_reply, send_msg, SendMessage};
+use crate::message::{edit_reply, send_msg, SendMessage, CANCEL_INTERACTION_ID};
 use crate::music::sponsorblock::get_skips;
 use crate::music::youtube_loudness::get_loudness;
 use crate::PoiseContext;
@@ -59,15 +59,44 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
     .buffered(20);
 
     if let Ok(handler_lock) = ctx.join_voice().await {
-        let mut handler = handler_lock.lock().await;
-        handler.remove_all_global_events();
-
-        // If adding more than 1 track, keep track of previously queued tracks
+        // If adding more than 1 track, keep track of previously queued tracks for reply
         let mut reply_handle: Option<poise::ReplyHandle> = None;
-        let mut pushed_tracks = Vec::with_capacity(num_queries);
+        const MAX_NUM_DISPLAYED_TRACKS: usize = 10;
+        let mut pushed_tracks = VecDeque::with_capacity(MAX_NUM_DISPLAYED_TRACKS);
+        let mut num_queued_tracks = 0;
+
+        // Spawn a new task to check if:
+        // _tx is dropped when all tracks are added
+        let (_tx, rx) = futures::channel::oneshot::channel::<()>();
+        // OR tx_cancel is dropped when cancel button is pressed
+        let (tx_cancel, mut rx_cancel) = futures::channel::oneshot::channel::<()>();
+        {
+            let discord = ctx.discord().clone();
+            let channel_id = ctx.channel_id();
+            tokio::spawn(async move {
+                let button_interaction_fut = serenity::CollectComponentInteraction::new(&discord)
+                    .channel_id(channel_id)
+                    .filter(move |ci| ci.data.custom_id == CANCEL_INTERACTION_ID);
+                tokio::select! {
+                    _ = rx => (),
+                    Some(ci) = button_interaction_fut => {
+                        drop(tx_cancel);
+                        ci.defer(discord.http()).await.unwrap();
+                    },
+                }
+            });
+        }
 
         while let Some(x) = tracks.next().await {
             if let Some((track, track_handle, sb_time)) = x {
+                // Check if operation was cancelled
+                if rx_cancel.try_recv().is_err() {
+                    break;
+                }
+
+                let mut handler = handler_lock.lock().await;
+                handler.remove_all_global_events();
+
                 // Queue track
                 handler.enqueue(track);
 
@@ -77,11 +106,30 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
                     let _ = queue[1].make_playable();
                 }
 
-                pushed_tracks.push(track_handle.clone());
-                let fmt = || format_add_playlist(pushed_tracks.clone(), num_queries, false);
+                // Updated tracks to send in reply
+                if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {
+                    pushed_tracks.pop_front();
+                }
+                pushed_tracks.push_back(track_handle.clone());
+                num_queued_tracks += 1;
+
+                // Send/edit reply
+                let fmt = || {
+                    format_add_playlist(
+                        pushed_tracks.clone().into_iter(),
+                        num_queued_tracks,
+                        num_queries,
+                        false,
+                    )
+                };
                 if let Some(ref reply_handle) = reply_handle {
                     // If a previous reply has been sent, edit the reply
-                    edit_reply(ctx, reply_handle.clone(), SendMessage::Custom(fmt())).await;
+                    edit_reply(
+                        ctx,
+                        reply_handle.clone(),
+                        SendMessage::CustomCancelable(fmt()),
+                    )
+                    .await;
                 } else {
                     let update = match handler.queue().current_queue().len() {
                         1 => PlayUpdate::Play(queue.len(), sb_time),
@@ -89,7 +137,8 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
                     };
                     if num_queries != 1 {
                         // If first of many queued tracks, send an initial reply
-                        reply_handle = Some(send_msg(ctx, SendMessage::Custom(fmt())).await);
+                        reply_handle =
+                            Some(send_msg(ctx, SendMessage::CustomCancelable(fmt())).await);
                     }
                     if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
                         send_msg(
@@ -104,7 +153,14 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
 
         // Finish editing reply once all tracks are queued
         if let Some(ref reply_handle) = reply_handle {
-            let fmt = || format_add_playlist(pushed_tracks.clone(), num_queries, true);
+            let fmt = || {
+                format_add_playlist(
+                    pushed_tracks.into_iter(),
+                    num_queued_tracks,
+                    num_queries,
+                    true,
+                )
+            };
             edit_reply(ctx, reply_handle.clone(), SendMessage::Custom(fmt())).await;
         }
     } else {

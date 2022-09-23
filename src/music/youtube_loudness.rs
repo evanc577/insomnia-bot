@@ -53,9 +53,7 @@ async fn get_loudness_helper(url: &str) -> Result<f32> {
 
 async fn query_youtube_db(url: &str) -> Result<f32> {
     // Query YouTube
-    let text = {
-        CLIENT.get(url).send().await?.text().await?
-    };
+    let text = { CLIENT.get(url).send().await?.text().await? };
 
     // Extract JSON string
     let json_str = {

@@ -1,9 +1,11 @@
 use std::process::Command;
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
+use super::error::MusicError;
 use crate::music::queue::{add_tracks, Query};
 use crate::PoiseContext;
 
@@ -17,9 +19,12 @@ struct PlaylistTrack {
     id: String,
 }
 
-pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Option<usize> {
-    let id = playlist_id(url)?;
-    let tracks = get_playlist_tracks(id).await;
+pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Result<Option<usize>> {
+    let id = match playlist_id(url) {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+    let tracks = get_playlist_tracks(id).await?;
     let num_tracks = tracks.len();
 
     let urls: Vec<_> = tracks
@@ -28,14 +33,14 @@ pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Option<us
         .collect();
     let _ = add_tracks(ctx, urls).await;
 
-    Some(num_tracks)
+    Ok(Some(num_tracks))
 }
 
 fn playlist_id(url: &str) -> Option<&str> {
     Some(YT_ID_RE.captures(url)?.name("id")?.as_str())
 }
 
-async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
+async fn get_playlist_tracks(playlist_id: &str) -> Result<Vec<PlaylistTrack>> {
     let playlist_url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
 
     // Get playlist items via youtube-dl
@@ -60,7 +65,7 @@ async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
     let output = if let Ok(Some(o)) = output {
         o
     } else {
-        return vec![];
+        return Err(MusicError::BadPlaylist.into());
     };
 
     // Parse playlist
@@ -69,5 +74,5 @@ async fn get_playlist_tracks(playlist_id: &str) -> Vec<PlaylistTrack> {
         .filter_map(|l| serde_json::from_str::<PlaylistTrack>(l).ok())
         .collect();
 
-    playlist_tracks
+    Ok(playlist_tracks)
 }
