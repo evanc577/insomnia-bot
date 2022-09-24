@@ -4,7 +4,9 @@ mod message;
 mod music;
 
 use std::collections::HashMap;
+use std::time::Duration;
 
+use once_cell::sync::Lazy;
 use poise::serenity_prelude as serenity;
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
@@ -16,6 +18,14 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, Error>;
 #[derive(Debug)]
 pub struct Data {}
+
+pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+});
 
 /// Registers slash commands in this guild or globally
 #[poise::command(prefix_command, hide_in_help, owners_only)]

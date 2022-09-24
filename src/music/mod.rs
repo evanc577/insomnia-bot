@@ -6,6 +6,7 @@ mod sponsorblock;
 pub mod voice;
 mod youtube_loudness;
 mod youtube_music;
+mod youtube_music_autocomplete;
 mod youtube_playlist;
 
 use if_chain::if_chain;
@@ -15,6 +16,7 @@ use self::error::MusicError;
 use self::message::{format_update, format_update_title_only, PlayUpdate};
 use self::queue::{add_tracks, remove_track, Query};
 use self::voice::{CanGetVoice, CanJoinVoice};
+use self::youtube_music_autocomplete::autocomplete_ytmusic;
 use self::youtube_playlist::add_youtube_playlist;
 use crate::message::{send_msg, SendMessage};
 use crate::{Error, PoiseContext};
@@ -26,6 +28,7 @@ pub async fn play(
     #[rest]
     #[description = "Song title or URL"]
     #[rename = "song_or_url"]
+    #[autocomplete = "autocomplete_ytmusic"]
     arg: Option<String>,
 ) -> Result<(), Error> {
     if !ctx.in_voice_and_send_msg().await {

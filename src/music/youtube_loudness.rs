@@ -1,19 +1,10 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
 use crate::error::InsomniaError;
-
-static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .use_rustls_tls()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap()
-});
+use crate::CLIENT;
 
 static JSON_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"<script.*?ytInitialPlayerResponse.*?(\{.*\}).*</script").unwrap());
