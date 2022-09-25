@@ -1,6 +1,7 @@
 mod config;
 mod message;
 mod music;
+pub mod util;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
