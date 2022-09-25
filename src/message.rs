@@ -1,14 +1,18 @@
 use std::fmt::Display;
 
+use once_cell::sync::Lazy;
 use poise::{async_trait, serenity_prelude as serenity, CreateReply, ReplyHandle};
 use serenity::builder::CreateEmbed;
 use serenity::http::Http;
+use serenity::Color;
 use serenity::model::id::ChannelId;
 
-use crate::config::{EMBED_COLOR, EMBED_ERROR_COLOR};
 use crate::PoiseContext;
 
 pub const CANCEL_INTERACTION_ID: &str = "cancel";
+pub static EMBED_COLOR: Lazy<Color> = Lazy::new(|| Color::from_rgb(0x10, 0x18, 0x20));
+pub static EMBED_PLAYING_COLOR: Lazy<Color> = Lazy::new(|| Color::from_rgb(0x77, 0xDD, 0x77));
+pub static EMBED_ERROR_COLOR: Lazy<Color> = Lazy::new(|| Color::from_rgb(0x8a, 0x2a, 0x2b));
 
 pub enum SendMessage<T>
 where

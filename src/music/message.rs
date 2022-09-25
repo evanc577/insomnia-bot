@@ -8,7 +8,7 @@ use serenity::builder::CreateEmbed;
 use serenity::Color;
 use songbird::tracks::TrackHandle;
 
-use crate::config::{EMBED_COLOR, EMBED_PLAYING_COLOR};
+use crate::message::{EMBED_COLOR, EMBED_PLAYING_COLOR};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlayUpdate {
