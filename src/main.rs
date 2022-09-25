@@ -92,15 +92,15 @@ async fn main() -> Result<()> {
     let commands = vec![
         register(),
         help(),
-        music::album(),
-        music::list(),
-        music::pause(),
-        music::play(),
-        music::remove(),
-        music::skip(),
-        music::song(),
-        music::stop(),
-        music::video(),
+        music::commands::album(),
+        music::commands::list(),
+        music::commands::pause(),
+        music::commands::play(),
+        music::commands::remove(),
+        music::commands::skip(),
+        music::commands::song(),
+        music::commands::stop(),
+        music::commands::video(),
     ];
 
     // Configure Poise options

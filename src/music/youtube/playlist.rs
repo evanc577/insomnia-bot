@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-use super::error::MusicError;
+use crate::music::error::MusicError;
 use crate::music::queue::{add_tracks, Query};
 use crate::PoiseContext;
 

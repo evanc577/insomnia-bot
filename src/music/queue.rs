@@ -15,9 +15,9 @@ use super::error::{InternalError, MusicError};
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use super::message::{format_add_playlist, format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
+use super::youtube::loudness::get_loudness;
+use super::youtube::sponsorblock::get_skips;
 use crate::message::{CustomSendMessage, SendableMessage, CANCEL_INTERACTION_ID};
-use crate::music::sponsorblock::get_skips;
-use crate::music::youtube_loudness::get_loudness;
 use crate::PoiseContext;
 
 pub enum Query {

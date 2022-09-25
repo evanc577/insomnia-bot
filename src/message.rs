@@ -4,8 +4,8 @@ use once_cell::sync::Lazy;
 use poise::{async_trait, serenity_prelude as serenity, CreateReply, ReplyHandle};
 use serenity::builder::CreateEmbed;
 use serenity::http::Http;
-use serenity::Color;
 use serenity::model::id::ChannelId;
+use serenity::Color;
 
 use crate::PoiseContext;
 

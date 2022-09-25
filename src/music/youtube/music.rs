@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use serde::Deserialize;
 
-use super::error::MusicError;
+use crate::music::error::MusicError;
 
 enum SearchType {
     Song,
