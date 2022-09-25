@@ -14,14 +14,14 @@ use tokio::signal::unix::{signal, SignalKind};
 
 use crate::config::Config;
 use crate::message::{SendMessage, SendableMessage};
-use crate::music::error::MusicError;
-use crate::music::queue::QueueMutexMap;
-use crate::music::spotify::auth::get_token_and_refresh;
+use crate::music::{get_spotify_token_and_refresh, MusicError, QueueMutexMap};
 
 pub type PoiseError = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, PoiseError>;
 #[derive(Debug)]
 pub struct Data {
+    // TODO: Use Spotify token for authenticated API calls
+    #[allow(dead_code)]
     spotify_token: Arc<Mutex<String>>,
 }
 
@@ -86,7 +86,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
 async fn main() -> Result<()> {
     let config = Config::get_config()?;
     let spotify_token =
-        get_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
+        get_spotify_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
 
     // Add bot commands
     let commands = vec![

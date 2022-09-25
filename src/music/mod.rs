@@ -1,8 +1,12 @@
 pub mod commands;
-pub mod error;
+mod error;
 mod events;
 mod message;
-pub mod queue;
-pub mod spotify;
+mod queue;
+mod spotify;
 mod voice;
 mod youtube;
+
+pub use error::MusicError;
+pub use queue::QueueMutexMap;
+pub use spotify::auth::get_token_and_refresh as get_spotify_token_and_refresh;

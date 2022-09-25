@@ -218,6 +218,16 @@ pub async fn list(
         return Err(MusicError::BadIndex.into());
     }
 
+    let format_track = |track: &TrackHandle| {
+        let title = track
+            .metadata()
+            .title
+            .clone()
+            .unwrap_or_else(|| "Unknown".into());
+
+        title.replace('`', "")
+    };
+
     // Build output string
     let list = queue
         .iter()
@@ -236,16 +246,6 @@ pub async fn list(
     SendMessage::Normal(&out_msg).send_msg(ctx).await;
 
     Ok(())
-}
-
-fn format_track(track: &TrackHandle) -> String {
-    let title = track
-        .metadata()
-        .title
-        .clone()
-        .unwrap_or_else(|| "Unknown".into());
-
-    title.replace('`', "")
 }
 
 /// Remove tracks from queue
