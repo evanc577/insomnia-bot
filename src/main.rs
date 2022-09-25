@@ -1,5 +1,4 @@
 mod config;
-mod error;
 mod message;
 mod music;
 
@@ -62,7 +61,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
                 match e {
                     MusicError::Internal(e) => {
                         eprintln!("Internal error: {:?}", e);
-                        SendMessage::Error("an internal error occured").send_msg(ctx).await;
+                        SendMessage::Error("an internal error occured")
+                            .send_msg(ctx)
+                            .await;
                     }
                     _ => {
                         SendMessage::Error(e.to_string()).send_msg(ctx).await;
@@ -126,7 +127,7 @@ async fn main() -> Result<()> {
     let framework = poise::Framework::builder()
         .options(options)
         .client_settings(|cb| cb.register_songbird())
-        .token(config.token)
+        .token(config.discord_token)
         .intents(
             serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
         )
