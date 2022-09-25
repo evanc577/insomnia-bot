@@ -65,11 +65,11 @@ impl Display for PlayUpdate {
 }
 
 pub fn format_add_playlist<'a>(
-    tracks: impl ExactSizeIterator + Iterator<Item = TrackHandle> + Send + 'a,
+    tracks: impl ExactSizeIterator + Iterator<Item = TrackHandle> + Send + Sync + 'a,
     num_queued_tracks: usize,
     total_tracks: usize,
     finished: bool,
-) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + 'a> {
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync + 'a> {
     Box::new(move |e| {
         let title_text = if finished {
             format!(
@@ -96,7 +96,9 @@ pub fn format_add_playlist<'a>(
     })
 }
 
-pub fn format_update_title_only(update: PlayUpdate) -> Box<dyn FnOnce(&mut CreateEmbed) + Send> {
+pub fn format_update_title_only(
+    update: PlayUpdate,
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync> {
     Box::new(move |e| {
         let title_span = Span::Text(update.to_string());
         let title_block = Block::Paragraph(vec![title_span]);
@@ -109,7 +111,7 @@ pub fn format_update_title_only(update: PlayUpdate) -> Box<dyn FnOnce(&mut Creat
 pub fn format_update(
     track: &TrackHandle,
     update: PlayUpdate,
-) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + '_> {
+) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync + '_> {
     Box::new(move |e| {
         // Generate title
         let title_span = Span::Text(update.to_string());

@@ -15,8 +15,7 @@ use super::error::MusicError;
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use super::message::{format_add_playlist, format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
-use crate::error::InsomniaError;
-use crate::message::{edit_reply, send_msg, SendMessage, CANCEL_INTERACTION_ID};
+use crate::message::{CustomSendMessage, SendMessage, SendableMessage, CANCEL_INTERACTION_ID};
 use crate::music::sponsorblock::get_skips;
 use crate::music::youtube_loudness::get_loudness;
 use crate::PoiseContext;
@@ -26,24 +25,11 @@ pub enum Query {
     Url(String),
 }
 
-pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()> {
-    let mutex = match get_lock(ctx).await {
-        Err(_) => return Ok(()),
-        Ok(m) => m,
-    };
+pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<usize, MusicError> {
+    let mutex = get_lock(ctx).await?;
     let _lock = mutex.lock().await;
 
-    let handler_lock = match ctx.get_voice().await {
-        Ok(h) => h,
-        Err(_) => {
-            send_msg(
-                ctx,
-                SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-            )
-            .await;
-            return Ok(());
-        }
-    };
+    let handler_lock = ctx.get_voice().await?;
 
     let lazy = {
         // Workaround for https://github.com/serenity-rs/songbird/issues/97
@@ -58,12 +44,12 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
     }))
     .buffered(20);
 
+    let mut num_queued_tracks = 0;
     if let Ok(handler_lock) = ctx.join_voice().await {
         // If adding more than 1 track, keep track of previously queued tracks for reply
         let mut reply_handle: Option<poise::ReplyHandle> = None;
         const MAX_NUM_DISPLAYED_TRACKS: usize = 10;
         let mut pushed_tracks = VecDeque::with_capacity(MAX_NUM_DISPLAYED_TRACKS);
-        let mut num_queued_tracks = 0;
 
         // Spawn a new task to check if:
         // _tx is dropped when all tracks are added
@@ -124,12 +110,9 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
                 };
                 if let Some(ref reply_handle) = reply_handle {
                     // If a previous reply has been sent, edit the reply
-                    edit_reply(
-                        ctx,
-                        reply_handle.clone(),
-                        SendMessage::CustomCancelable(fmt()),
-                    )
-                    .await;
+                    CustomSendMessage::Cancelable(fmt())
+                        .edit_reply(ctx, reply_handle.clone())
+                        .await;
                 } else {
                     let update = match handler.queue().current_queue().len() {
                         1 => PlayUpdate::Play(queue.len(), sb_time),
@@ -138,14 +121,12 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
                     if num_queries != 1 {
                         // If first of many queued tracks, send an initial reply
                         reply_handle =
-                            Some(send_msg(ctx, SendMessage::CustomCancelable(fmt())).await);
+                            Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
                     }
                     if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
-                        send_msg(
-                            ctx,
-                            SendMessage::Custom(format_update(&track_handle, update)),
-                        )
-                        .await;
+                        CustomSendMessage::Custom(format_update(&track_handle, update))
+                            .send_msg(ctx)
+                            .await;
                     }
                 }
             }
@@ -161,17 +142,17 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<()
                     true,
                 )
             };
-            edit_reply(ctx, reply_handle.clone(), SendMessage::Custom(fmt())).await;
+            CustomSendMessage::Custom(fmt())
+                .edit_reply(ctx, reply_handle.clone())
+                .await;
         }
     } else {
-        send_msg(
-            ctx,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-        )
-        .await;
+        SendMessage::Error(&MusicError::NotInVoiceChannel)
+            .send_msg(ctx)
+            .await;
     }
 
-    Ok(())
+    Ok(num_queued_tracks)
 }
 
 pub async fn remove_track(
@@ -217,7 +198,9 @@ async fn create_track(
     let source = match source {
         Ok(s) => s,
         Err(_) => {
-            send_msg(ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
+            SendMessage::Error(&MusicError::BadSource)
+                .send_msg(ctx)
+                .await;
             return None;
         }
     };
@@ -288,11 +271,9 @@ impl TypeMapKey for QueueMutexMap {
     type Value = HashMap<Option<GuildId>, Arc<Mutex<()>>>;
 }
 
-async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>> {
+async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>, MusicError> {
     let data = ctx.discord().data.read().await;
-    let map = data
-        .get::<QueueMutexMap>()
-        .ok_or(InsomniaError::QueueLock)?;
+    let map = data.get::<QueueMutexMap>().ok_or(MusicError::QueueLock)?;
     let m = match map.get(&ctx.guild_id()) {
         Some(m) => m.clone(),
         None => {
@@ -301,7 +282,7 @@ async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>> {
             let mut data = ctx.discord().data.write().await;
             let map = data
                 .get_mut::<QueueMutexMap>()
-                .ok_or(InsomniaError::QueueLock)?;
+                .ok_or(MusicError::QueueLock)?;
             map.insert(ctx.guild_id(), m.clone());
             m
         }

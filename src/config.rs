@@ -19,6 +19,8 @@ pub struct Config {
     pub token: String,
     #[serde(default = "default_prefix")]
     pub prefix: String,
+    pub spotify_client_id: String,
+    pub spotify_secret: String,
 }
 
 fn default_prefix() -> String {
@@ -32,6 +34,8 @@ impl Config {
             Err(_) => Config {
                 token: "".into(),
                 prefix: default_prefix(),
+                spotify_client_id: "".into(),
+                spotify_secret: "".into(),
             },
         };
 
@@ -41,9 +45,17 @@ impl Config {
         if let Ok(prefix) = env::var("DISCORD_COMMAND_PREFIX") {
             config.prefix = prefix;
         }
+        if let Ok(spotify_client_id) = env::var("SPOTIFY_CLIENT_ID") {
+            config.spotify_client_id = spotify_client_id;
+        }
+        if let Ok(spotify_secret) = env::var("SPOTIFY_SECRET") {
+            config.spotify_secret = spotify_secret;
+        }
 
         if config.token.is_empty() {
             Err(InsomniaError::ConfigToken.into())
+        } else if config.spotify_secret.is_empty() || config.spotify_client_id.is_empty() {
+            Err(InsomniaError::SpotifySecret.into())
         } else {
             Ok(config)
         }

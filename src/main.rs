@@ -4,20 +4,25 @@ mod message;
 mod music;
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use poise::serenity_prelude as serenity;
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 
-use crate::config::{Config, CONFIG_FILE};
+use crate::config::Config;
 use crate::music::queue::QueueMutexMap;
+use crate::music::spotify::auth::get_token_and_refresh;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, Error>;
 #[derive(Debug)]
-pub struct Data {}
+pub struct Data {
+    spotify_token: Arc<Mutex<String>>,
+}
 
 pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -62,14 +67,10 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 }
 
 #[tokio::main]
-async fn main() {
-    let config = match Config::get_config() {
-        Ok(c) => c,
-        Err(e) => {
-            println!("Error reading {}: {}", CONFIG_FILE, e);
-            std::process::exit(1);
-        }
-    };
+async fn main() -> Result<()> {
+    let config = Config::get_config()?;
+    let spotify_token =
+        get_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
 
     // Add bot commands
     let commands = vec![
@@ -114,7 +115,9 @@ async fn main() {
         .intents(
             serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
         )
-        .user_data_setup(move |_ctx, _ready, _framework| Box::pin(async move { Ok(Data {}) }))
+        .user_data_setup(move |_ctx, _ready, _framework| {
+            Box::pin(async move { Ok(Data { spotify_token }) })
+        })
         .build()
         .await
         .unwrap();
@@ -150,4 +153,6 @@ async fn main() {
         .start()
         .await
         .map_err(|why| println!("Client ended: {:?}", why));
+
+    Ok(())
 }

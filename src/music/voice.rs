@@ -1,34 +1,33 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use poise::serenity_prelude::*;
+use poise::serenity_prelude as serenity;
+use serenity::{async_trait, ChannelId, Mutex};
 use songbird::Call;
 
 use super::error::MusicError;
-use crate::error::InsomniaError;
-use crate::message::{send_msg, SendMessage};
+use crate::message::{SendMessage, SendableMessage};
 use crate::PoiseContext;
 
 #[async_trait]
 pub trait CanJoinVoice {
-    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>>;
+    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError>;
 }
 
 #[async_trait]
 impl CanJoinVoice for PoiseContext<'_> {
-    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>> {
-        let guild_id = self.guild_id().ok_or(InsomniaError::JoinVoice)?;
+    async fn join_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError> {
+        let guild_id = self.guild_id().ok_or(MusicError::JoinVoice)?;
         let manager = songbird::get(self.discord())
             .await
-            .ok_or(InsomniaError::GetVoice)?;
-        let channel_id = get_channel_id(self).await.ok_or(InsomniaError::JoinVoice)?;
+            .ok_or(MusicError::GetVoice)?;
+        let channel_id = get_channel_id(self).await.ok_or(MusicError::JoinVoice)?;
 
         // Join voice channel
         let (handler_lock, error) = manager.join(guild_id, channel_id).await;
         if error.is_err() {
             let _ = dbg!(error);
             let _ = manager.leave(guild_id).await;
-            return Err(InsomniaError::JoinVoice.into());
+            return Err(MusicError::JoinVoice);
         }
 
         // Automatically deafen
@@ -42,18 +41,18 @@ impl CanJoinVoice for PoiseContext<'_> {
 
 #[async_trait]
 pub trait CanGetVoice {
-    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>>;
+    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError>;
     async fn in_voice_and_send_msg(&self) -> bool;
 }
 
 #[async_trait]
 impl CanGetVoice for PoiseContext<'_> {
-    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>> {
-        get_channel_id(self).await.ok_or(InsomniaError::GetVoice)?;
-        let guild_id = self.guild_id().ok_or(InsomniaError::GetVoice)?;
+    async fn get_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError> {
+        get_channel_id(self).await.ok_or(MusicError::GetVoice)?;
+        let guild_id = self.guild_id().ok_or(MusicError::GetVoice)?;
         let manager = songbird::get(self.discord())
             .await
-            .ok_or(InsomniaError::GetVoice)?;
+            .ok_or(MusicError::GetVoice)?;
         Ok(manager.get_or_insert(guild_id))
     }
 
@@ -61,11 +60,9 @@ impl CanGetVoice for PoiseContext<'_> {
         match get_channel_id(self).await {
             Some(_) => true,
             None => {
-                send_msg(
-                    *self,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
+                SendMessage::Error(&MusicError::NotInVoiceChannel)
+                    .send_msg(*self)
+                    .await;
                 false
             }
         }

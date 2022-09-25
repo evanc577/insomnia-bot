@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::error::InsomniaError;
+use crate::music::error::MusicError;
 use crate::CLIENT;
 
 static JSON_RE: Lazy<Regex> =
@@ -35,7 +35,7 @@ pub async fn get_loudness(url: &str) -> f32 {
 
 async fn get_loudness_helper(url: &str) -> Result<f32> {
     if !URL_RE.is_match(url) {
-        return Err(InsomniaError::Loudness.into());
+        return Err(MusicError::Loudness.into());
     }
 
     let loudness_db = query_youtube_db(url).await?;
@@ -48,8 +48,8 @@ async fn query_youtube_db(url: &str) -> Result<f32> {
 
     // Extract JSON string
     let json_str = {
-        let caps = JSON_RE.captures(&text).ok_or(InsomniaError::Loudness)?;
-        let m = caps.get(1).ok_or(InsomniaError::Loudness)?;
+        let caps = JSON_RE.captures(&text).ok_or(MusicError::Loudness)?;
+        let m = caps.get(1).ok_or(MusicError::Loudness)?;
         m.as_str()
     };
 

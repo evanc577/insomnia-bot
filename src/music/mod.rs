@@ -3,6 +3,7 @@ mod events;
 mod message;
 pub mod queue;
 mod sponsorblock;
+pub mod spotify;
 pub mod voice;
 mod youtube_loudness;
 mod youtube_music;
@@ -18,7 +19,7 @@ use self::queue::{add_tracks, remove_track, Query};
 use self::voice::{CanGetVoice, CanJoinVoice};
 use self::youtube_music_autocomplete::autocomplete_ytmusic;
 use self::youtube_playlist::add_youtube_playlist;
-use crate::message::{send_msg, SendMessage};
+use crate::message::{CustomSendMessage, SendMessage, SendableMessage};
 use crate::{Error, PoiseContext};
 
 /// Play a song via YouTube Music or URL, if no argument is given, resume the paused track
@@ -38,9 +39,12 @@ pub async fn play(
     if let Some(arg) = arg {
         ctx.defer_or_broadcast().await?;
         if let Ok(url) = url::Url::parse(&arg) {
-            if let Err(e) = add_youtube_playlist(ctx, url.as_str()).await {
-                let _ = send_msg(ctx, SendMessage::Error(&e.to_string())).await;
+            // Try parsing url as youtube playlist
+            if add_youtube_playlist(ctx, url.as_str()).await.is_ok() {
+                return Ok(());
             }
+            // Try adding url as a track
+            let _ = add_tracks(ctx, vec![Query::Url(url.to_string())]).await;
         } else {
             // Otherwise search YouTube Music
             add_song(&ctx, arg).await?;
@@ -50,11 +54,9 @@ pub async fn play(
         let handler_lock = match ctx.get_voice().await {
             Ok(h) => h,
             Err(_) => {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-                )
-                .await;
+                SendMessage::Error(MusicError::NotInVoiceChannel)
+                    .send_msg(ctx)
+                    .await;
                 return Ok(());
             }
         };
@@ -67,11 +69,9 @@ pub async fn play(
             then {
                 let _ = track.play();
             } else {
-                send_msg(
-                    ctx,
-                    SendMessage::Error(MusicError::NoPausedTrack.as_str()),
-                )
-                .await;
+                SendMessage::Error(MusicError::NoPausedTrack)
+                    .send_msg(ctx)
+                    .await;
                 return Ok(());
             }
         }
@@ -100,7 +100,9 @@ async fn add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), Error> {
     if let Some(url) = youtube_music::yt_music_song_search(song).await {
         let _ = add_tracks(*ctx, vec![Query::Url(url.to_string())]).await;
     } else {
-        send_msg(*ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
+        // SendMessage::Error(MusicError::BadSource)
+        //     .send_msg(*ctx)
+        //     .await;
         return Ok(());
     }
 
@@ -155,12 +157,14 @@ pub async fn album(
     ctx.defer_or_broadcast().await?;
     if let Some(url) = youtube_music::yt_music_album_search(arg).await {
         if let Err(e) = add_youtube_playlist(ctx, url.as_str()).await {
-            let _ = send_msg(ctx, SendMessage::Error(&e.to_string())).await;
+            let _ = SendMessage::Error(&e).send_msg(ctx).await;
         }
         return Ok(());
     }
 
-    send_msg(ctx, SendMessage::Error(MusicError::BadSource.as_str())).await;
+    SendMessage::Error(MusicError::BadSource)
+        .send_msg(ctx)
+        .await;
 
     Ok(())
 }
@@ -177,21 +181,17 @@ pub async fn pause(ctx: PoiseContext<'_>) -> Result<(), Error> {
             if info.playing == PlayMode::Play;
             then {
                 track.pause()?;
-                send_msg(
-                    ctx,
-                    SendMessage::Custom(format_update(&track, PlayUpdate::Pause)),
-                )
-                .await;
+                    CustomSendMessage::Custom(format_update(&track, PlayUpdate::Pause))
+                    .send_msg(ctx)
+                    .await;
             } else {
-                send_msg(ctx, SendMessage::Error(MusicError::NoPlayingTrack.as_str())).await;
+                SendMessage::Error(MusicError::NoPlayingTrack).send_msg(ctx).await;
             }
         }
     } else {
-        send_msg(
-            ctx,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-        )
-        .await;
+        SendMessage::Error(MusicError::NotInVoiceChannel)
+            .send_msg(ctx)
+            .await;
     }
 
     Ok(())
@@ -204,21 +204,17 @@ pub async fn skip(ctx: PoiseContext<'_>) -> Result<(), Error> {
         let handler = handler_lock.lock().await;
         if let Some(track) = handler.queue().dequeue(0) {
             let _ = track.stop();
-            send_msg(
-                ctx,
-                SendMessage::Custom(format_update(&track, PlayUpdate::Skip)),
-            )
-            .await;
+            CustomSendMessage::Custom(format_update(&track, PlayUpdate::Skip))
+                .send_msg(ctx)
+                .await;
             if let Some(next) = handler.queue().current() {
                 let _ = next.play();
             }
         }
     } else {
-        send_msg(
-            ctx,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-        )
-        .await;
+        SendMessage::Error(MusicError::NotInVoiceChannel)
+            .send_msg(ctx)
+            .await;
     }
 
     Ok(())
@@ -234,17 +230,13 @@ pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
             let _ = track.stop();
         }
         queue.stop();
-        send_msg(
-            ctx,
-            SendMessage::Custom(format_update_title_only(PlayUpdate::Stop)),
-        )
-        .await;
+        CustomSendMessage::Custom(format_update_title_only(PlayUpdate::Stop))
+            .send_msg(ctx)
+            .await;
     } else {
-        send_msg(
-            ctx,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-        )
-        .await;
+        SendMessage::Error(MusicError::NotInVoiceChannel)
+            .send_msg(ctx)
+            .await;
     }
 
     Ok(())
@@ -294,11 +286,9 @@ pub async fn list(
 
         (queue_total, list)
     } else {
-        send_msg(
-            ctx,
-            SendMessage::Error(MusicError::NotInVoiceChannel.as_str()),
-        )
-        .await;
+        SendMessage::Error(MusicError::NotInVoiceChannel)
+            .send_msg(ctx)
+            .await;
         return Ok(());
     };
 
@@ -308,7 +298,7 @@ pub async fn list(
         1 => format!("{} track in queue\n```{}```", 1, list),
         n => format!("{} tracks in queue\n```{}```", n, list),
     };
-    send_msg(ctx, SendMessage::Normal(&out_msg)).await;
+    SendMessage::Normal(&out_msg).send_msg(ctx).await;
 
     Ok(())
 }
@@ -351,21 +341,17 @@ pub async fn remove(
     match remove_track(ctx, start_idx, end_idx).await {
         Ok(removed) => {
             if removed.len() == 1 {
-                send_msg(
-                    ctx,
-                    SendMessage::Custom(format_update(&removed[0], PlayUpdate::Remove)),
-                )
-                .await;
+                CustomSendMessage::Custom(format_update(&removed[0], PlayUpdate::Remove))
+                    .send_msg(ctx)
+                    .await;
             } else {
-                send_msg(
-                    ctx,
-                    SendMessage::Normal(&format!("Removed {} tracks", removed.len())),
-                )
-                .await;
+                SendMessage::Normal(&format!("Removed {} tracks", removed.len()))
+                    .send_msg(ctx)
+                    .await;
             }
         }
         Err(e) => {
-            send_msg(ctx, SendMessage::Error(&e.to_string())).await;
+            SendMessage::Error(&e).send_msg(ctx).await;
         }
     }
 

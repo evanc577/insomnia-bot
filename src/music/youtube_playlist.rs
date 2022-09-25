@@ -1,6 +1,5 @@
 use std::process::Command;
 
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
@@ -19,10 +18,13 @@ struct PlaylistTrack {
     id: String,
 }
 
-pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Result<Option<usize>> {
+pub async fn add_youtube_playlist(
+    ctx: PoiseContext<'_>,
+    url: &str,
+) -> Result<Option<usize>, MusicError> {
     let id = match playlist_id(url) {
         Some(id) => id,
-        None => return Ok(None),
+        None => return Err(MusicError::BadPlaylist),
     };
     let tracks = get_playlist_tracks(id).await?;
     let num_tracks = tracks.len();
@@ -40,7 +42,7 @@ fn playlist_id(url: &str) -> Option<&str> {
     Some(YT_ID_RE.captures(url)?.name("id")?.as_str())
 }
 
-async fn get_playlist_tracks(playlist_id: &str) -> Result<Vec<PlaylistTrack>> {
+async fn get_playlist_tracks(playlist_id: &str) -> Result<Vec<PlaylistTrack>, MusicError> {
     let playlist_url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
 
     // Get playlist items via youtube-dl
@@ -65,7 +67,7 @@ async fn get_playlist_tracks(playlist_id: &str) -> Result<Vec<PlaylistTrack>> {
     let output = if let Ok(Some(o)) = output {
         o
     } else {
-        return Err(MusicError::BadPlaylist.into());
+        return Err(MusicError::BadPlaylist);
     };
 
     // Parse playlist
