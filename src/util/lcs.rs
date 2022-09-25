@@ -35,7 +35,10 @@ pub fn lcs(s1: &str, s2: &str) -> usize {
 
 /// Trim beginning and end of graphemes if they match in both strings, also return the number of
 /// trims performed
-fn trim<'a, 'b, 'c, 'd>(s1: &'a [&'b str], s2: &'c [&'d str]) -> (&'a [&'b str], &'c [&'d str], usize) {
+fn trim<'a, 'b, 'c, 'd>(
+    s1: &'a [&'b str],
+    s2: &'c [&'d str],
+) -> (&'a [&'b str], &'c [&'d str], usize) {
     let mut s1 = s1;
     let mut s2 = s2;
     let mut trim_count = 0;
