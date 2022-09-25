@@ -11,11 +11,11 @@ use songbird::input::{self, Restartable};
 use songbird::tracks::{Track, TrackHandle};
 use songbird::{Event, TrackEvent};
 
-use super::error::MusicError;
+use super::error::{InternalError, MusicError};
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
 use super::message::{format_add_playlist, format_update, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
-use crate::message::{CustomSendMessage, SendMessage, SendableMessage, CANCEL_INTERACTION_ID};
+use crate::message::{CustomSendMessage, SendableMessage, CANCEL_INTERACTION_ID};
 use crate::music::sponsorblock::get_skips;
 use crate::music::youtube_loudness::get_loudness;
 use crate::PoiseContext;
@@ -44,111 +44,105 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<us
     }))
     .buffered(20);
 
+    let handler_lock = ctx.join_voice().await?;
+    // If adding more than 1 track, keep track of previously queued tracks for reply
+    let mut reply_handle: Option<poise::ReplyHandle> = None;
+    const MAX_NUM_DISPLAYED_TRACKS: usize = 10;
+    let mut pushed_tracks = VecDeque::with_capacity(MAX_NUM_DISPLAYED_TRACKS);
     let mut num_queued_tracks = 0;
-    if let Ok(handler_lock) = ctx.join_voice().await {
-        // If adding more than 1 track, keep track of previously queued tracks for reply
-        let mut reply_handle: Option<poise::ReplyHandle> = None;
-        const MAX_NUM_DISPLAYED_TRACKS: usize = 10;
-        let mut pushed_tracks = VecDeque::with_capacity(MAX_NUM_DISPLAYED_TRACKS);
 
-        // Spawn a new task to check if:
-        // _tx is dropped when all tracks are added
-        let (_tx, rx) = futures::channel::oneshot::channel::<()>();
-        // OR tx_cancel is dropped when cancel button is pressed
-        let (tx_cancel, mut rx_cancel) = futures::channel::oneshot::channel::<()>();
-        {
-            let discord = ctx.discord().clone();
-            let channel_id = ctx.channel_id();
-            tokio::spawn(async move {
-                let button_interaction_fut = serenity::CollectComponentInteraction::new(&discord)
-                    .channel_id(channel_id)
-                    .filter(move |ci| ci.data.custom_id == CANCEL_INTERACTION_ID);
-                tokio::select! {
-                    _ = rx => (),
-                    Some(ci) = button_interaction_fut => {
-                        drop(tx_cancel);
-                        ci.defer(discord.http()).await.unwrap();
-                    },
-                }
-            });
-        }
+    // Spawn a new task to check if:
+    // _tx is dropped when all tracks are added
+    let (_tx, rx) = futures::channel::oneshot::channel::<()>();
+    // OR tx_cancel is dropped when cancel button is pressed
+    let (tx_cancel, mut rx_cancel) = futures::channel::oneshot::channel::<()>();
+    {
+        let discord = ctx.discord().clone();
+        let channel_id = ctx.channel_id();
+        tokio::spawn(async move {
+            let button_interaction_fut = serenity::CollectComponentInteraction::new(&discord)
+                .channel_id(channel_id)
+                .filter(move |ci| ci.data.custom_id == CANCEL_INTERACTION_ID);
+            tokio::select! {
+                _ = rx => (),
+                Some(ci) = button_interaction_fut => {
+                    drop(tx_cancel);
+                    ci.defer(discord.http()).await.unwrap();
+                },
+            }
+        });
+    }
 
-        while let Some(x) = tracks.next().await {
-            if let Some((track, track_handle, sb_time)) = x {
-                // Check if operation was cancelled
-                if rx_cancel.try_recv().is_err() {
-                    break;
-                }
+    while let Some(x) = tracks.next().await {
+        if let Ok((track, track_handle, sb_time)) = x {
+            // Check if operation was cancelled
+            if rx_cancel.try_recv().is_err() {
+                break;
+            }
 
-                let mut handler = handler_lock.lock().await;
-                handler.remove_all_global_events();
+            let mut handler = handler_lock.lock().await;
+            handler.remove_all_global_events();
 
-                // Queue track
-                handler.enqueue(track);
+            // Queue track
+            handler.enqueue(track);
 
-                // Make the next song in queue playable to reduce delay
-                let queue = handler.queue().current_queue();
-                if queue.len() > 1 {
-                    let _ = queue[1].make_playable();
-                }
+            // Make the next song in queue playable to reduce delay
+            let queue = handler.queue().current_queue();
+            if queue.len() > 1 {
+                let _ = queue[1].make_playable();
+            }
 
-                // Updated tracks to send in reply
-                if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {
-                    pushed_tracks.pop_front();
-                }
-                pushed_tracks.push_back(track_handle.clone());
-                num_queued_tracks += 1;
+            // Updated tracks to send in reply
+            if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {
+                pushed_tracks.pop_front();
+            }
+            pushed_tracks.push_back(track_handle.clone());
+            num_queued_tracks += 1;
 
-                // Send/edit reply
-                let fmt = || {
-                    format_add_playlist(
-                        pushed_tracks.clone().into_iter(),
-                        num_queued_tracks,
-                        num_queries,
-                        false,
-                    )
+            // Send/edit reply
+            let fmt = || {
+                format_add_playlist(
+                    pushed_tracks.clone().into_iter(),
+                    num_queued_tracks,
+                    num_queries,
+                    false,
+                )
+            };
+            if let Some(ref reply_handle) = reply_handle {
+                // If a previous reply has been sent, edit the reply
+                CustomSendMessage::Cancelable(fmt())
+                    .edit_reply(ctx, reply_handle.clone())
+                    .await;
+            } else {
+                let update = match handler.queue().current_queue().len() {
+                    1 => PlayUpdate::Play(queue.len(), sb_time),
+                    _ => PlayUpdate::Add(queue.len()),
                 };
-                if let Some(ref reply_handle) = reply_handle {
-                    // If a previous reply has been sent, edit the reply
-                    CustomSendMessage::Cancelable(fmt())
-                        .edit_reply(ctx, reply_handle.clone())
+                if num_queries != 1 {
+                    // If first of many queued tracks, send an initial reply
+                    reply_handle = Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
+                }
+                if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
+                    CustomSendMessage::Custom(format_update(&track_handle, update))
+                        .send_msg(ctx)
                         .await;
-                } else {
-                    let update = match handler.queue().current_queue().len() {
-                        1 => PlayUpdate::Play(queue.len(), sb_time),
-                        _ => PlayUpdate::Add(queue.len()),
-                    };
-                    if num_queries != 1 {
-                        // If first of many queued tracks, send an initial reply
-                        reply_handle =
-                            Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
-                    }
-                    if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
-                        CustomSendMessage::Custom(format_update(&track_handle, update))
-                            .send_msg(ctx)
-                            .await;
-                    }
                 }
             }
         }
+    }
 
-        // Finish editing reply once all tracks are queued
-        if let Some(ref reply_handle) = reply_handle {
-            let fmt = || {
-                format_add_playlist(
-                    pushed_tracks.into_iter(),
-                    num_queued_tracks,
-                    num_queries,
-                    true,
-                )
-            };
-            CustomSendMessage::Custom(fmt())
-                .edit_reply(ctx, reply_handle.clone())
-                .await;
-        }
-    } else {
-        SendMessage::Error(&MusicError::NotInVoiceChannel)
-            .send_msg(ctx)
+    // Finish editing reply once all tracks are queued
+    if let Some(ref reply_handle) = reply_handle {
+        let fmt = || {
+            format_add_playlist(
+                pushed_tracks.into_iter(),
+                num_queued_tracks,
+                num_queries,
+                true,
+            )
+        };
+        CustomSendMessage::Custom(fmt())
+            .edit_reply(ctx, reply_handle.clone())
             .await;
     }
 
@@ -189,21 +183,13 @@ async fn create_track(
     ctx: PoiseContext<'_>,
     query: Query,
     lazy: bool,
-) -> Option<(Track, TrackHandle, Option<Duration>)> {
+) -> Result<(Track, TrackHandle, Option<Duration>), MusicError> {
     // Create source
     let source = match query {
         Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
         Query::Url(x) => Restartable::ytdl(x.to_owned(), lazy).await,
-    };
-    let source = match source {
-        Ok(s) => s,
-        Err(_) => {
-            SendMessage::Error(&MusicError::BadSource)
-                .send_msg(ctx)
-                .await;
-            return None;
-        }
-    };
+    }
+    .map_err(|e| MusicError::Internal(e.into()))?;
 
     let input: input::Input = source.into();
 
@@ -262,7 +248,7 @@ async fn create_track(
         )
         .expect("Error adding TrackStartNotifier");
 
-    Some((track, track_handle, sb_time))
+    Ok((track, track_handle, sb_time))
 }
 
 pub struct QueueMutexMap;
@@ -273,7 +259,9 @@ impl TypeMapKey for QueueMutexMap {
 
 async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>, MusicError> {
     let data = ctx.discord().data.read().await;
-    let map = data.get::<QueueMutexMap>().ok_or(MusicError::QueueLock)?;
+    let map = data
+        .get::<QueueMutexMap>()
+        .ok_or_else(|| MusicError::Internal(InternalError::QueueLock.into()))?;
     let m = match map.get(&ctx.guild_id()) {
         Some(m) => m.clone(),
         None => {
@@ -282,7 +270,7 @@ async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>, MusicError> {
             let mut data = ctx.discord().data.write().await;
             let map = data
                 .get_mut::<QueueMutexMap>()
-                .ok_or(MusicError::QueueLock)?;
+                .ok_or_else(|| MusicError::Internal(InternalError::QueueLock.into()))?;
             map.insert(ctx.guild_id(), m.clone());
             m
         }

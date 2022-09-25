@@ -59,9 +59,6 @@ pub trait SendableMessage {
     where
         Self: Sized,
     {
-        // Set ephemeral on errors
-        m.ephemeral(self.is_ephemeral());
-
         // Add cancel button if needed
         if self.is_cancelable() {
             m.components(|c| {
@@ -76,6 +73,9 @@ pub trait SendableMessage {
         } else {
             m.components(|c| c);
         }
+
+        // Set ephemeral on errors
+        m.ephemeral(self.is_ephemeral());
 
         // Add embed
         m.embed(|e| self.build_embed(e))
@@ -92,10 +92,17 @@ where
 {
     fn build_embed(self, e: &mut CreateEmbed) -> &mut CreateEmbed {
         match self {
-            Self::Normal(_) => {
+            Self::Normal(s) => {
+                e.description(s);
                 e.color(*EMBED_COLOR);
             }
-            Self::Error(_) => {
+            Self::Error(s) => {
+                e.title("Error");
+                let mut s = s.to_string();
+                if let Some(c) = s.get_mut(0..1) {
+                    c.make_ascii_uppercase();
+                }
+                e.description(s);
                 e.color(*EMBED_ERROR_COLOR);
             }
         }

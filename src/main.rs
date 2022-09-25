@@ -14,11 +14,13 @@ use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 
 use crate::config::Config;
+use crate::message::{SendMessage, SendableMessage};
+use crate::music::error::MusicError;
 use crate::music::queue::QueueMutexMap;
 use crate::music::spotify::auth::get_token_and_refresh;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
-pub type PoiseContext<'a> = poise::Context<'a, Data, Error>;
+pub type PoiseError = Box<dyn std::error::Error + Send + Sync>;
+pub type PoiseContext<'a> = poise::Context<'a, Data, PoiseError>;
 #[derive(Debug)]
 pub struct Data {
     spotify_token: Arc<Mutex<String>>,
@@ -34,7 +36,7 @@ pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 
 /// Registers slash commands in this guild or globally
 #[poise::command(prefix_command, hide_in_help, owners_only)]
-async fn register(ctx: PoiseContext<'_>) -> Result<(), Error> {
+async fn register(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
     poise::builtins::register_application_commands_buttons(ctx).await?;
     println!("Registering...");
     Ok(())
@@ -47,20 +49,33 @@ async fn help(
     #[description = "Specific command to show help about"]
     #[autocomplete = "poise::builtins::autocomplete_command"]
     command: Option<String>,
-) -> Result<(), Error> {
+) -> Result<(), PoiseError> {
     poise::builtins::help(ctx, command.as_deref(), Default::default()).await?;
     Ok(())
 }
 
-async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {:?}", error),
         poise::FrameworkError::Command { error, ctx } => {
-            println!("Error in command `{}`: {:?}", ctx.command().name, error,);
+            if let Some(e) = error.downcast_ref::<MusicError>() {
+                match e {
+                    MusicError::Internal(e) => {
+                        eprintln!("Internal error: {:?}", e);
+                        SendMessage::Error("an internal error occured").send_msg(ctx).await;
+                    }
+                    _ => {
+                        SendMessage::Error(e.to_string()).send_msg(ctx).await;
+                    }
+                }
+            }
+        }
+        poise::FrameworkError::ArgumentParse { error, ctx, .. } => {
+            SendMessage::Error(error.to_string()).send_msg(ctx).await;
         }
         error => {
             if let Err(e) = poise::builtins::on_error(error).await {
-                println!("Error while handling error: {}", e)
+                eprintln!("Error while handling error: {}", e)
             }
         }
     }

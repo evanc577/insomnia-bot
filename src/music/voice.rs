@@ -5,7 +5,6 @@ use serenity::{async_trait, ChannelId, Mutex};
 use songbird::Call;
 
 use super::error::MusicError;
-use crate::message::{SendMessage, SendableMessage};
 use crate::PoiseContext;
 
 #[async_trait]
@@ -20,7 +19,7 @@ impl CanJoinVoice for PoiseContext<'_> {
         let manager = songbird::get(self.discord())
             .await
             .ok_or(MusicError::GetVoice)?;
-        let channel_id = get_channel_id(self).await.ok_or(MusicError::JoinVoice)?;
+        let channel_id = get_channel_id(self).await?;
 
         // Join voice channel
         let (handler_lock, error) = manager.join(guild_id, channel_id).await;
@@ -42,39 +41,28 @@ impl CanJoinVoice for PoiseContext<'_> {
 #[async_trait]
 pub trait CanGetVoice {
     async fn get_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError>;
-    async fn in_voice_and_send_msg(&self) -> bool;
 }
 
 #[async_trait]
 impl CanGetVoice for PoiseContext<'_> {
     async fn get_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError> {
-        get_channel_id(self).await.ok_or(MusicError::GetVoice)?;
+        get_channel_id(self).await?;
         let guild_id = self.guild_id().ok_or(MusicError::GetVoice)?;
         let manager = songbird::get(self.discord())
             .await
             .ok_or(MusicError::GetVoice)?;
         Ok(manager.get_or_insert(guild_id))
     }
-
-    async fn in_voice_and_send_msg(&self) -> bool {
-        match get_channel_id(self).await {
-            Some(_) => true,
-            None => {
-                SendMessage::Error(&MusicError::NotInVoiceChannel)
-                    .send_msg(*self)
-                    .await;
-                false
-            }
-        }
-    }
 }
 
-async fn get_channel_id(ctx: &PoiseContext<'_>) -> Option<ChannelId> {
+async fn get_channel_id(ctx: &PoiseContext<'_>) -> Result<ChannelId, MusicError> {
     let channel_id = ctx
-        .guild()?
+        .guild()
+        .ok_or(MusicError::GetVoice)?
         .voice_states
         .get(&ctx.author().id)
-        .and_then(|voice_state| voice_state.channel_id)?;
+        .and_then(|voice_state| voice_state.channel_id)
+        .ok_or(MusicError::NotInVoiceChannel)?;
 
-    Some(channel_id)
+    Ok(channel_id)
 }
