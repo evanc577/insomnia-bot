@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::stream::StreamExt;
+use futures::Stream;
 use poise::serenity_prelude as serenity;
 use serenity::model::id::GuildId;
 use serenity::*;
@@ -25,7 +26,12 @@ pub enum Query {
     Url(String),
 }
 
-pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<usize, MusicError> {
+/// Add the given tracks to the queue
+pub async fn add_tracks(
+    ctx: PoiseContext<'_>,
+    queries: impl Stream<Item = Query>,
+    num_queries: usize,
+) -> Result<(), MusicError> {
     let mutex = get_lock(ctx).await?;
     let _lock = mutex.lock().await;
 
@@ -37,14 +43,15 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<us
         !handler.queue().is_empty()
     };
 
-    let num_queries = queries.len();
-    let mut tracks = futures::stream::iter(queries.into_iter().enumerate().map(|(i, q)| {
-        let lazy = lazy || (i != 0);
-        create_track(ctx, q, lazy)
-    }))
-    .buffered(20);
+    tokio::pin!(queries);
+    let mut tracks = queries
+        .enumerate()
+        .map(|(i, q)| {
+            let lazy = lazy || (i != 0);
+            create_track(ctx, q, lazy)
+        })
+        .buffered(20);
 
-    let handler_lock = ctx.join_voice().await?;
     // If adding more than 1 track, keep track of previously queued tracks for reply
     let mut reply_handle: Option<poise::ReplyHandle> = None;
     const MAX_NUM_DISPLAYED_TRACKS: usize = 10;
@@ -74,58 +81,67 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<us
     }
 
     while let Some(x) = tracks.next().await {
-        if let Ok((track, track_handle, sb_time)) = x {
-            // Check if operation was cancelled
-            if rx_cancel.try_recv().is_err() {
-                break;
-            }
-
-            let mut handler = handler_lock.lock().await;
-            handler.remove_all_global_events();
-
-            // Queue track
-            handler.enqueue(track);
-
-            // Make the next song in queue playable to reduce delay
-            let queue = handler.queue().current_queue();
-            if queue.len() > 1 {
-                let _ = queue[1].make_playable();
-            }
-
-            // Updated tracks to send in reply
-            if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {
-                pushed_tracks.pop_front();
-            }
-            pushed_tracks.push_back(track_handle.clone());
-            num_queued_tracks += 1;
-
-            // Send/edit reply
-            let fmt = || {
-                format_add_playlist(
-                    pushed_tracks.clone().into_iter(),
-                    num_queued_tracks,
-                    num_queries,
-                    false,
-                )
-            };
-            if let Some(ref reply_handle) = reply_handle {
-                // If a previous reply has been sent, edit the reply
-                CustomSendMessage::Cancelable(fmt())
-                    .edit_reply(ctx, reply_handle.clone())
-                    .await;
-            } else {
-                let update = match handler.queue().current_queue().len() {
-                    1 => PlayUpdate::Play(queue.len(), sb_time),
-                    _ => PlayUpdate::Add(queue.len()),
-                };
-                if num_queries != 1 {
-                    // If first of many queued tracks, send an initial reply
-                    reply_handle = Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
+        match x {
+            Err(e) => {
+                if num_queries == 1 {
+                    return Err(e);
                 }
-                if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
-                    CustomSendMessage::Custom(format_update(&track_handle, update))
-                        .send_msg(ctx)
+            }
+            Ok((track, track_handle, sb_time)) => {
+                // Check if operation was cancelled
+                if rx_cancel.try_recv().is_err() {
+                    break;
+                }
+
+                let handler_lock = ctx.join_voice().await?;
+                let mut handler = handler_lock.lock().await;
+                handler.remove_all_global_events();
+
+                // Queue track
+                handler.enqueue(track);
+
+                // Make the next song in queue playable to reduce delay
+                let queue = handler.queue().current_queue();
+                if queue.len() > 1 {
+                    let _ = queue[1].make_playable();
+                }
+
+                // Updated tracks to send in reply
+                if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {
+                    pushed_tracks.pop_front();
+                }
+                pushed_tracks.push_back(track_handle.clone());
+                num_queued_tracks += 1;
+
+                // Send/edit reply
+                let fmt = || {
+                    format_add_playlist(
+                        pushed_tracks.clone().into_iter(),
+                        num_queued_tracks,
+                        num_queries,
+                        false,
+                    )
+                };
+                if let Some(ref reply_handle) = reply_handle {
+                    // If a previous reply has been sent, edit the reply
+                    CustomSendMessage::Cancelable(fmt())
+                        .edit_reply(ctx, reply_handle.clone())
                         .await;
+                } else {
+                    let update = match handler.queue().current_queue().len() {
+                        1 => PlayUpdate::Play(queue.len(), sb_time),
+                        _ => PlayUpdate::Add(queue.len()),
+                    };
+                    if num_queries != 1 {
+                        // If first of many queued tracks, send an initial reply
+                        reply_handle =
+                            Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
+                    }
+                    if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
+                        CustomSendMessage::Custom(format_update(&track_handle, update))
+                            .send_msg(ctx)
+                            .await;
+                    }
                 }
             }
         }
@@ -146,7 +162,14 @@ pub async fn add_tracks(ctx: PoiseContext<'_>, queries: Vec<Query>) -> Result<us
             .await;
     }
 
-    Ok(num_queued_tracks)
+    if num_queries == num_queued_tracks {
+        Ok(())
+    } else {
+        Err(MusicError::AddTracks {
+            failed: num_queries - num_queued_tracks,
+            total: num_queries,
+        })
+    }
 }
 
 pub async fn remove_track(
@@ -185,11 +208,21 @@ async fn create_track(
     lazy: bool,
 ) -> Result<(Track, TrackHandle, Option<Duration>), MusicError> {
     // Create source
-    let source = match query {
+    let source_res = match query {
         Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
         Query::Url(x) => Restartable::ytdl(x.to_owned(), lazy).await,
-    }
-    .map_err(|e| MusicError::Internal(e.into()))?;
+    };
+    let source = match source_res {
+        Ok(s) => s,
+        Err(songbird::input::error::Error::Json { parsed_text, error }) => {
+            if error.to_string().starts_with("EOF") {
+                return Err(MusicError::NoResults);
+            } else {
+                return Err(MusicError::BadSource(parsed_text));
+            }
+        }
+        Err(e) => return Err(MusicError::Internal(e.into())),
+    };
 
     let input: input::Input = source.into();
 

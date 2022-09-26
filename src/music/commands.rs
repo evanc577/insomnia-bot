@@ -29,9 +29,8 @@ pub async fn play(
                 return Ok(());
             }
             // Try adding url as a track
-            if 0 == add_tracks(ctx, vec![Query::Url(url.to_string())]).await? {
-                return Err(MusicError::BadSource.into());
-            }
+            let query = Query::Url(url.to_string());
+            add_tracks(ctx, futures::stream::once(async { query }), 1).await?;
         } else {
             // Otherwise search YouTube Music
             search_add_song(&ctx, arg).await?;
@@ -70,9 +69,8 @@ pub async fn song(
 async fn search_add_song(ctx: &PoiseContext<'_>, song: String) -> Result<(), PoiseError> {
     ctx.defer_or_broadcast().await?;
     let url = yt_music_song_search(song).await?;
-    if 0 == add_tracks(*ctx, vec![Query::Url(url.to_string())]).await? {
-        return Err(MusicError::BadSource.into());
-    }
+    let query = Query::Url(url.to_string());
+    add_tracks(*ctx, futures::stream::once(async { query }), 1).await?;
 
     Ok(())
 }
@@ -93,17 +91,14 @@ pub async fn video(
     arg: String,
 ) -> Result<(), PoiseError> {
     ctx.defer_or_broadcast().await?;
-    if let Ok(url) = url::Url::parse(&arg) {
+    let query = if let Ok(url) = url::Url::parse(&arg) {
         // If URL is given, play URL
-        if 0 == add_tracks(ctx, vec![Query::Url(url.to_string())]).await? {
-            return Err(MusicError::BadSource.into());
-        }
+        Query::Url(url.to_string())
     } else {
         // Otherwise search YouTube Music
-        if 0 == add_tracks(ctx, vec![Query::Search(arg)]).await? {
-            return Err(MusicError::NoResults.into());
-        }
-    }
+        Query::Search(arg)
+    };
+    add_tracks(ctx, futures::stream::once(async { query }), 1).await?;
 
     Ok(())
 }

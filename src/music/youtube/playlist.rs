@@ -18,10 +18,7 @@ struct PlaylistTrack {
     id: String,
 }
 
-pub async fn add_youtube_playlist(
-    ctx: PoiseContext<'_>,
-    url: &str,
-) -> Result<Option<usize>, MusicError> {
+pub async fn add_youtube_playlist(ctx: PoiseContext<'_>, url: &str) -> Result<(), MusicError> {
     let id = match playlist_id(url) {
         Some(id) => id,
         None => return Err(MusicError::BadPlaylist),
@@ -29,13 +26,12 @@ pub async fn add_youtube_playlist(
     let tracks = get_playlist_tracks(id).await?;
     let num_tracks = tracks.len();
 
-    let urls: Vec<_> = tracks
-        .iter()
-        .map(|t| Query::Url(format!("https://www.youtube.com/watch?v={}", t.id)))
-        .collect();
-    let _ = add_tracks(ctx, urls).await;
-
-    Ok(Some(num_tracks))
+    let stream = futures::stream::iter(
+        tracks
+            .into_iter()
+            .map(|t| Query::Url(format!("https://www.youtube.com/watch?v={}", t.id))),
+    );
+    add_tracks(ctx, stream, num_tracks).await
 }
 
 fn playlist_id(url: &str) -> Option<&str> {

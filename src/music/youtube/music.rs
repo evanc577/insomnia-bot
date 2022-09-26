@@ -2,7 +2,6 @@ use pyo3::prelude::*;
 use serde::Deserialize;
 
 use crate::music::error::MusicError;
-use crate::util::lcs::lcs;
 
 enum SearchType {
     Song,
@@ -16,19 +15,11 @@ impl SearchType {
             SearchType::Album => ["album"].iter(),
         }
     }
-
-    fn category(&self) -> &str {
-        match self {
-            SearchType::Song => "songs",
-            SearchType::Album => "albums",
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct YTMusicSearchResult {
-    title: Option<String>,
     category: String,
     result_type: String,
     video_id: Option<String>,
@@ -54,10 +45,8 @@ pub async fn yt_music_album_search(query: String) -> Result<String, MusicError> 
     Ok(url)
 }
 
+/// Search YouTube Music and return the first valid result
 async fn search_id(query: String, search_type: SearchType) -> Result<String, MusicError> {
-    // Used later for LCS algorithm
-    let query_lowercase = query.to_lowercase();
-
     // Use Python ytmusicapi library
     let search_results_json: Result<anyhow::Result<String>, _> =
         tokio::task::spawn_blocking(move || {
@@ -88,30 +77,17 @@ async fn search_id(query: String, search_type: SearchType) -> Result<String, Mus
     let search_results: Vec<YTMusicSearchResult> =
         serde_json::from_str(&search_results_json).map_err(|e| MusicError::Internal(e.into()))?;
 
-    // Find best match to user query based on the larger longest common subsequence between user
-    // query and result title.
-    // Look at the top result as well as the first 5 results in the user chosen category
+    // Choose the first result, giving top result priority
     let result = search_results
         .iter()
         .filter(|r| r.category.to_lowercase() == "top result")
-        .take(5)
+        .filter_map(|r| check_results(r, &search_type))
         .chain(
-            // Also check top result
             search_results
                 .iter()
-                .filter(|r| r.category.to_lowercase() == search_type.category()),
+                .filter_map(|r| check_results(r, &search_type)),
         )
-        .filter_map(|r| check_results(r, &search_type))
-        // use enumerate() to force max_by_key to choose first of equal elements
-        .enumerate()
-        .map(|(i, (id, title))| {
-            (
-                id,
-                (lcs(&query_lowercase[..50], &title.to_lowercase()), -(i as isize)),
-            )
-        })
-        .max_by_key(|(_, lcs)| *lcs)
-        .map(|(id, _)| id)
+        .next()
         .ok_or(MusicError::NoResults)?
         .clone();
 
@@ -121,20 +97,20 @@ async fn search_id(query: String, search_type: SearchType) -> Result<String, Mus
 fn check_results<'a>(
     result: &'a YTMusicSearchResult,
     search_type: &SearchType,
-) -> Option<(&'a String, &'a String)> {
+) -> Option<&'a String> {
     if search_type
         .result_type()
         .any(|&t| t == result.result_type.to_lowercase())
     {
         match search_type {
             SearchType::Song => {
-                if let (Some(id), Some(title)) = (&result.video_id, &result.title) {
-                    return Some((id, title));
+                if let Some(id) = &result.video_id {
+                    return Some(id);
                 }
             }
             SearchType::Album => {
-                if let (Some(id), Some(title)) = (&result.browse_id, &result.title) {
-                    return Some((id, title));
+                if let Some(id) = &result.browse_id {
+                    return Some(id);
                 }
             }
         }

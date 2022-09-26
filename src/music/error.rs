@@ -4,9 +4,10 @@ use std::fmt::Display;
 #[derive(Debug)]
 pub enum MusicError {
     Internal(anyhow::Error),
+    AddTracks { failed: usize, total: usize },
     BadIndex,
     BadPlaylist,
-    BadSource,
+    BadSource(String),
     GetVoice,
     JoinVoice,
     Loudness,
@@ -21,9 +22,23 @@ impl Display for MusicError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Internal(e) => write!(f, "internal error: {}", e),
+            Self::AddTracks { failed, total } => {
+                if *total == 1 {
+                    write!(f, "could not add track to queue")
+                } else {
+                    write!(f, "could not add {} tracks to queue", failed)
+                }
+            }
             Self::BadIndex => write!(f, "invalid index"),
             Self::BadPlaylist => write!(f, "invalid or empty playlist"),
-            Self::BadSource => write!(f, "could not load source"),
+            Self::BadSource(s) => {
+                let s = s
+                    .trim_start_matches("ERROR:")
+                    .trim_start_matches("Error:")
+                    .trim_start_matches("error:")
+                    .trim();
+                write!(f, "could not load source\n{}", s)
+            }
             Self::GetVoice => write!(f, "could not get voice channel"),
             Self::JoinVoice => write!(f, "could not join voice channel"),
             Self::Loudness => write!(f, "could not get track loudness"),
