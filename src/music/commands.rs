@@ -2,7 +2,7 @@ use if_chain::if_chain;
 use songbird::tracks::{PlayMode, TrackHandle};
 
 use super::error::MusicError;
-use super::message::{format_update, format_update_title_only, PlayUpdate};
+use super::message::PlayUpdate;
 use super::queue::{add_tracks, remove_track, Query};
 use super::voice::{CanGetVoice, CanJoinVoice};
 use super::youtube::music::{yt_music_album_search, yt_music_song_search};
@@ -133,7 +133,7 @@ pub async fn pause(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
         .map_err(|e| MusicError::Internal(e.into()))?;
     if info.playing == PlayMode::Play {
         track.pause()?;
-        CustomSendMessage::Custom(format_update(&track, PlayUpdate::Pause))
+        CustomSendMessage::Custom(PlayUpdate::Pause(track.clone()).format().await)
             .send_msg(ctx)
             .await;
     }
@@ -151,7 +151,7 @@ pub async fn skip(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
         .dequeue(0)
         .ok_or(MusicError::NoPlayingTrack)?;
     let _ = track.stop();
-    CustomSendMessage::Custom(format_update(&track, PlayUpdate::Skip))
+    CustomSendMessage::Custom(PlayUpdate::Skip(track.clone()).format().await)
         .send_msg(ctx)
         .await;
     if let Some(next) = handler.queue().current() {
@@ -171,7 +171,7 @@ pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
         let _ = track.stop();
     }
     queue.stop();
-    CustomSendMessage::Custom(format_update_title_only(PlayUpdate::Stop))
+    CustomSendMessage::Custom(PlayUpdate::Stop.format().await)
         .send_msg(ctx)
         .await;
 
@@ -266,7 +266,7 @@ pub async fn remove(
     // Remove tracks
     let removed = remove_track(ctx, start_idx, end_idx).await?;
     if removed.len() == 1 {
-        CustomSendMessage::Custom(format_update(&removed[0], PlayUpdate::Remove))
+        CustomSendMessage::Custom(PlayUpdate::Remove(removed[0].clone()).format().await)
             .send_msg(ctx)
             .await;
     } else {

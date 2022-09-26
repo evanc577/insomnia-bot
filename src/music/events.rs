@@ -7,7 +7,7 @@ use serenity::http::Http;
 use serenity::{async_trait, *};
 use songbird::{Event, EventContext, EventHandler as VoiceEventHandler};
 
-use super::message::{format_update, PlayUpdate};
+use super::message::PlayUpdate;
 use crate::message::{CustomSendMessage, SendableMessage};
 
 pub struct TrackSegmentSkipper {
@@ -52,7 +52,6 @@ pub struct TrackStartNotifier {
     pub chan_id: ChannelId,
     pub guild_id: GuildId,
     pub http: Arc<Http>,
-    pub sb_time: Option<Duration>,
 }
 
 #[async_trait]
@@ -71,11 +70,11 @@ impl VoiceEventHandler for TrackStartNotifier {
                 } else {
                     1
                 };
-                PlayUpdate::Play(queue_len, self.sb_time)
+                PlayUpdate::Play(track.clone(), queue_len)
             } else {
-                PlayUpdate::Resume
+                PlayUpdate::Resume(track.clone())
             };
-            CustomSendMessage::Custom(format_update(track, update))
+            CustomSendMessage::Custom(update.format().await)
                 .send_msg_http(&self.http, self.chan_id)
                 .await;
         }

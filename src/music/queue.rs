@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use futures::stream::StreamExt;
@@ -14,10 +13,10 @@ use songbird::{Event, TrackEvent};
 
 use super::error::{InternalError, MusicError};
 use super::events::{TrackEndNotifier, TrackSegmentSkipper, TrackStartNotifier};
-use super::message::{format_add_playlist, format_update, PlayUpdate};
+use super::message::{format_add_playlist, PlayUpdate};
 use super::voice::{CanGetVoice, CanJoinVoice};
 use super::youtube::loudness::get_loudness;
-use super::youtube::sponsorblock::get_skips;
+use super::youtube::sponsorblock::{get_skips, SBDuration};
 use crate::message::{CustomSendMessage, SendableMessage, CANCEL_INTERACTION_ID};
 use crate::PoiseContext;
 
@@ -87,7 +86,7 @@ pub async fn add_tracks(
                     return Err(e);
                 }
             }
-            Ok((track, track_handle, sb_time)) => {
+            Ok((track, track_handle)) => {
                 // Check if operation was cancelled
                 if rx_cancel.try_recv().is_err() {
                     break;
@@ -129,16 +128,16 @@ pub async fn add_tracks(
                         .await;
                 } else {
                     let update = match handler.queue().current_queue().len() {
-                        1 => PlayUpdate::Play(queue.len(), sb_time),
-                        _ => PlayUpdate::Add(queue.len()),
+                        1 => PlayUpdate::Play(track_handle.clone(), queue.len()),
+                        _ => PlayUpdate::Add(track_handle.clone(), queue.len()),
                     };
                     if num_queries != 1 {
                         // If first of many queued tracks, send an initial reply
                         reply_handle =
                             Some(CustomSendMessage::Cancelable(fmt()).send_msg(ctx).await);
                     }
-                    if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_))) {
-                        CustomSendMessage::Custom(format_update(&track_handle, update))
+                    if !(num_queries != 1 && matches!(update, PlayUpdate::Add(_, _))) {
+                        CustomSendMessage::Custom(update.format().await)
                             .send_msg(ctx)
                             .await;
                     }
@@ -206,7 +205,7 @@ async fn create_track(
     ctx: PoiseContext<'_>,
     query: Query,
     lazy: bool,
-) -> Result<(Track, TrackHandle, Option<Duration>), MusicError> {
+) -> Result<(Track, TrackHandle), MusicError> {
     // Create source
     let source_res = match query {
         Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
@@ -253,6 +252,11 @@ async fn create_track(
     } else {
         None
     };
+    track_handle
+        .typemap()
+        .write()
+        .await
+        .insert::<SBDuration>(sb_time);
 
     // Set TrackEndNotifier
     track_handle
@@ -276,12 +280,11 @@ async fn create_track(
                 chan_id: ctx.channel_id(),
                 guild_id: ctx.guild_id().unwrap(),
                 http: ctx.discord().http.clone(),
-                sb_time,
             },
         )
         .expect("Error adding TrackStartNotifier");
 
-    Ok((track, track_handle, sb_time))
+    Ok((track, track_handle))
 }
 
 pub struct QueueMutexMap;
