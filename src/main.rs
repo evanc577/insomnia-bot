@@ -53,11 +53,22 @@ async fn help(
     Ok(())
 }
 
+/// Log command invocation
+async fn pre_command(ctx: PoiseContext<'_>) {
+    println!(
+        "command {} called by {}#{:04}",
+        ctx.command().qualified_name,
+        ctx.author().name,
+        ctx.author().discriminator
+    );
+}
+
 async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {:?}", error),
         poise::FrameworkError::Command { error, ctx } => {
             if let Some(e) = error.downcast_ref::<MusicError>() {
+                // If command returned a MusicError, notify the caller by sending a reply
                 match e {
                     MusicError::Internal(e) => {
                         eprintln!("Internal error: {:?}", e);
@@ -110,17 +121,8 @@ async fn main() -> Result<()> {
             prefix: Some(config.prefix),
             ..Default::default()
         },
+        pre_command: |ctx| Box::pin(pre_command(ctx)),
         on_error: |error| Box::pin(on_error(error)),
-        pre_command: |ctx| {
-            Box::pin(async move {
-                println!(
-                    "command {} called by {}#{:04}",
-                    ctx.command().qualified_name,
-                    ctx.author().name,
-                    ctx.author().discriminator
-                );
-            })
-        },
         ..Default::default()
     };
 
