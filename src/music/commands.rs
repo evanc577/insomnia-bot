@@ -6,7 +6,6 @@ use super::message::PlayUpdate;
 use super::queue::{add_tracks, remove_track, Query};
 use super::voice::{CanGetVoice, CanJoinVoice};
 use super::youtube::music::{yt_music_album_search, yt_music_song_search};
-use super::youtube::music_autocomplete::autocomplete_ytmusic;
 use super::youtube::playlist::add_youtube_playlist;
 use crate::message::{CustomSendMessage, SendMessage, SendableMessage};
 use crate::{PoiseContext, PoiseError};
@@ -18,7 +17,6 @@ pub async fn play(
     #[rest]
     #[description = "Song title or URL"]
     #[rename = "song_or_url"]
-    #[autocomplete = "autocomplete_ytmusic"]
     arg: Option<String>,
 ) -> Result<(), PoiseError> {
     if let Some(arg) = arg {
