@@ -8,13 +8,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use poise::serenity_prelude as serenity;
+use poise::{serenity_prelude as serenity, Event};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 
 use crate::config::Config;
 use crate::message::{SendMessage, SendableMessage};
-use crate::music::{get_spotify_token_and_refresh, MusicError, QueueMutexMap};
+use crate::music::{
+    get_spotify_token_and_refresh, handle_voice_state_event, MusicError, QueueMutexMap,
+};
 
 pub type PoiseError = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, PoiseError>;
@@ -93,6 +95,17 @@ async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
     }
 }
 
+async fn on_event(ctx: &serenity::Context, event: &Event<'_>) -> Result<(), PoiseError> {
+    #[allow(clippy::single_match)]
+    match event {
+        Event::VoiceStateUpdate { new: state, .. } => {
+            handle_voice_state_event(ctx, state).await;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::get_config()?;
@@ -123,6 +136,7 @@ async fn main() -> Result<()> {
         },
         pre_command: |ctx| Box::pin(pre_command(ctx)),
         on_error: |error| Box::pin(on_error(error)),
+        event_handler: |ctx, event, _framework, _data| Box::pin(on_event(ctx, event)),
         ..Default::default()
     };
 
@@ -133,9 +147,7 @@ async fn main() -> Result<()> {
         .intents(
             serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
         )
-        .setup(move |_ctx, _ready, _framework| {
-            Box::pin(async move { Ok(Data { spotify_token }) })
-        })
+        .setup(move |_ctx, _ready, _framework| Box::pin(async move { Ok(Data { spotify_token }) }))
         .build()
         .await
         .unwrap();

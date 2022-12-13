@@ -8,5 +8,6 @@ mod voice;
 mod youtube;
 
 pub use error::MusicError;
+pub use events::handle_voice_state_event;
 pub use queue::QueueMutexMap;
 pub use spotify::auth::get_token_and_refresh as get_spotify_token_and_refresh;

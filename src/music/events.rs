@@ -139,7 +139,65 @@ struct ChannelIdleLeaver {
 impl VoiceEventHandler for ChannelIdleLeaver {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
         let mut handler = self.call.lock().await;
+        if let Some(track) = handler.queue().current() {
+            let _ = track.stop();
+        }
+        handler.queue().stop();
         handler.leave().await.unwrap();
+        handler.remove_all_global_events();
         None
+    }
+}
+
+/// If bot is in a voice channel when the last other user leaves, set an idle timeout
+pub async fn handle_voice_state_event(
+    ctx: &serenity::Context,
+    voice_state: &serenity::model::voice::VoiceState,
+) {
+    if let Some(guild_id) = voice_state.guild_id {
+        let songbird = songbird::serenity::get(ctx).await.unwrap();
+        let handler_lock = if let Some(h) = songbird.get(guild_id) {
+            h
+        } else {
+            return;
+        };
+
+        let cache = ctx.cache.clone();
+        let guild = cache
+            .guild(guild_id)
+            .unwrap()
+            .channels(ctx.http())
+            .await
+            .unwrap();
+        for (_, channel) in guild {
+            if channel.kind != ChannelType::Voice {
+                continue;
+            }
+
+            // Find the voice channel bot is in
+            let mut bot_in_channel = false;
+            let bot_user_id = cache.clone().current_user_id();
+            let members = channel.members(cache.clone()).await.unwrap();
+            for member in &members {
+                if member.user.id == bot_user_id {
+                    bot_in_channel = true;
+                    break;
+                }
+            }
+
+            if bot_in_channel {
+                if members.len() == 1 {
+                    // Only bot is in channel, add idle timeout
+                    set_leave_timer(handler_lock).await;
+                } else {
+                    // Others in channel as well, remove idle timeout if queue is not empty
+                    let mut handler = handler_lock.lock().await;
+                    if !handler.queue().is_empty() {
+                        handler.remove_all_global_events();
+                    }
+                }
+                return;
+            }
+        }
     }
 }

@@ -39,13 +39,14 @@ pub async fn play(
         // If no arguments, resume current track
         let handler_lock = ctx.get_voice().await?;
         if_chain! {
-            let handler = handler_lock.lock().await;
+            let mut handler = handler_lock.lock().await;
             let queue = handler.queue();
             if let Some(track) = queue.current();
             if let Ok(info) = track.get_info().await;
             if info.playing == PlayMode::Pause;
             then {
                 let _ = track.play();
+                handler.remove_all_global_events();
             } else {
                 return Err(MusicError::NoPausedTrack.into());
             }
