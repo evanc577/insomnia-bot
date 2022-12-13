@@ -63,17 +63,17 @@ pub async fn add_tracks(
     // OR tx_cancel is dropped when cancel button is pressed
     let (tx_cancel, mut rx_cancel) = futures::channel::oneshot::channel::<()>();
     {
-        let discord = ctx.discord().clone();
+        let serenity_ctx = ctx.serenity_context().clone();
         let channel_id = ctx.channel_id();
         tokio::spawn(async move {
-            let button_interaction_fut = serenity::CollectComponentInteraction::new(&discord)
+            let button_interaction_fut = serenity::CollectComponentInteraction::new(&serenity_ctx)
                 .channel_id(channel_id)
                 .filter(move |ci| ci.data.custom_id == CANCEL_INTERACTION_ID);
             tokio::select! {
                 _ = rx => (),
                 Some(ci) = button_interaction_fut => {
                     drop(tx_cancel);
-                    ci.defer(discord.http()).await.unwrap();
+                    ci.defer(serenity_ctx.http()).await.unwrap();
                 },
             }
         });
@@ -263,10 +263,10 @@ async fn create_track(
         .add_event(
             Event::Track(TrackEvent::End),
             TrackEndNotifier {
-                ctx: Arc::new(Mutex::new(ctx.discord().clone())),
+                ctx: Arc::new(Mutex::new(ctx.serenity_context().clone())),
                 chan_id: ctx.channel_id(),
                 guild_id: ctx.guild_id().unwrap(),
-                http: ctx.discord().http.clone(),
+                http: ctx.serenity_context().http.clone(),
             },
         )
         .expect("Error adding TrackEndNotifier");
@@ -276,10 +276,10 @@ async fn create_track(
         .add_event(
             Event::Track(TrackEvent::Play),
             TrackStartNotifier {
-                ctx: Arc::new(Mutex::new(ctx.discord().clone())),
+                ctx: Arc::new(Mutex::new(ctx.serenity_context().clone())),
                 chan_id: ctx.channel_id(),
                 guild_id: ctx.guild_id().unwrap(),
-                http: ctx.discord().http.clone(),
+                http: ctx.serenity_context().http.clone(),
             },
         )
         .expect("Error adding TrackStartNotifier");
@@ -294,7 +294,7 @@ impl TypeMapKey for QueueMutexMap {
 }
 
 async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>, MusicError> {
-    let data = ctx.discord().data.read().await;
+    let data = ctx.serenity_context().data.read().await;
     let map = data
         .get::<QueueMutexMap>()
         .ok_or_else(|| MusicError::Internal(InternalError::QueueLock.into()))?;
@@ -303,7 +303,7 @@ async fn get_lock(ctx: PoiseContext<'_>) -> Result<Arc<Mutex<()>>, MusicError> {
         None => {
             let m = Arc::new(Mutex::new(()));
             drop(data);
-            let mut data = ctx.discord().data.write().await;
+            let mut data = ctx.serenity_context().data.write().await;
             let map = data
                 .get_mut::<QueueMutexMap>()
                 .ok_or_else(|| MusicError::Internal(InternalError::QueueLock.into()))?;

@@ -16,7 +16,7 @@ pub trait CanJoinVoice {
 impl CanJoinVoice for PoiseContext<'_> {
     async fn join_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError> {
         let guild_id = self.guild_id().ok_or(MusicError::JoinVoice)?;
-        let manager = songbird::get(self.discord())
+        let manager = songbird::get(self.serenity_context())
             .await
             .ok_or(MusicError::GetVoice)?;
         let channel_id = get_channel_id(self).await?;
@@ -48,7 +48,7 @@ impl CanGetVoice for PoiseContext<'_> {
     async fn get_voice(&self) -> Result<Arc<Mutex<Call>>, MusicError> {
         get_channel_id(self).await?;
         let guild_id = self.guild_id().ok_or(MusicError::GetVoice)?;
-        let manager = songbird::get(self.discord())
+        let manager = songbird::get(self.serenity_context())
             .await
             .ok_or(MusicError::GetVoice)?;
         Ok(manager.get_or_insert(guild_id))

@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
         .intents(
             serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
         )
-        .user_data_setup(move |_ctx, _ready, _framework| {
+        .setup(move |_ctx, _ready, _framework| {
             Box::pin(async move { Ok(Data { spotify_token }) })
         })
         .build()
