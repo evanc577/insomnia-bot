@@ -1,11 +1,9 @@
-###########
-# Builder #
-###########
-FROM almalinux:9 AS builder
+########
+# chef #
+########
+FROM almalinux:9 AS chef
 
-# Install Rust
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+WORKDIR /insomnia_bot
 
 # Install devel tools
 RUN dnf group install -y "Development Tools"
@@ -13,8 +11,32 @@ RUN dnf install -y 'dnf-command(config-manager)'
 RUN dnf config-manager --set-enabled crb
 RUN dnf install -y python3-devel cmake opus-devel
 
-# Compile
-WORKDIR /insomnia_bot
+# Install Rust
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install cargo-chef
+RUN cargo install cargo-chef
+
+
+###########
+# planner #
+###########
+FROM chef AS planner
+
+COPY src/ ./src
+COPY Cargo.toml .
+COPY Cargo.lock .
+RUN cargo chef prepare  --recipe-path recipe.json
+
+
+###########
+# builder #
+###########
+FROM chef AS builder
+
+COPY --from=planner /insomnia_bot/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 COPY src/ ./src
 COPY Cargo.toml .
 COPY Cargo.lock .
