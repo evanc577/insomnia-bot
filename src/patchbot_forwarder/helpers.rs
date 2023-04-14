@@ -22,11 +22,20 @@ pub async fn create_table(config: &Config) -> String {
     uri
 }
 
-pub async fn insert_to_table(ctx: &PoiseContext<'_>, match_text: &str, source_channel_id: u64, dest_channel_id: u64) {
+pub async fn insert_to_table(
+    ctx: &PoiseContext<'_>,
+    match_text: &str,
+    source_channel_id: u64,
+    dest_channel_id: u64,
+) {
     let db_uri = ctx.data().db_uri.as_str();
     let db = Database::connect(db_uri).await.unwrap();
 
     let x = ActiveModel {
+        guild_id: Set(format!(
+            "{:x}",
+            ctx.guild_id().and_then(|x| Some(*x.as_u64())).unwrap_or(0)
+        )),
         source_channel_id: Set(format!("{:x}", source_channel_id)),
         match_text: Set(match_text.to_owned()),
         dest_channel_id: Set(format!("{:x}", dest_channel_id)),

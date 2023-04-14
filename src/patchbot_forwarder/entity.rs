@@ -5,6 +5,7 @@ use sea_orm::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
+    pub guild_id: String,
     pub source_channel_id: String,
     pub match_text: String,
     pub dest_channel_id: String,

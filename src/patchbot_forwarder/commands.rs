@@ -36,3 +36,16 @@ pub async fn patchbot_forward(
 
     Ok(())
 }
+
+/// List Patchbot forward rules
+#[poise::command(
+    slash_command,
+    prefix_command,
+    guild_only,
+    required_permissions = "MANAGE_GUILD"
+)]
+pub async fn patchbot_list(
+    ctx: PoiseContext<'_>,
+) -> Result<(), PoiseError> {
+    Ok(())
+}

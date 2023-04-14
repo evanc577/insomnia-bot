@@ -5,7 +5,11 @@ use sea_orm::{ColumnTrait, Database, EntityTrait, QueryFilter};
 
 use super::{entity::*, error::PatchbotForwardError};
 
-pub async fn forward(db_uri: &str, http: Arc<Http>, message: Message) -> Result<(), PatchbotForwardError>{
+pub async fn forward(
+    db_uri: &str,
+    http: Arc<Http>,
+    message: Message,
+) -> Result<(), PatchbotForwardError> {
     let embed_author = message
         .embeds
         .iter()
@@ -19,6 +23,15 @@ pub async fn forward(db_uri: &str, http: Arc<Http>, message: Message) -> Result<
     let db = Database::connect(db_uri).await.unwrap();
 
     let matches = Entity::find()
+        .filter(
+            Column::GuildId.eq(format!(
+                "{:x}",
+                message
+                    .guild_id
+                    .and_then(|x| Some(*x.as_u64()))
+                    .unwrap_or(0)
+            )),
+        )
         .filter(Column::SourceChannelId.eq(format!("{:x}", message.channel_id.as_u64())))
         .filter(Column::MatchText.eq(embed_author))
         .all(&db)
@@ -27,7 +40,7 @@ pub async fn forward(db_uri: &str, http: Arc<Http>, message: Message) -> Result<
 
     for x in matches {
         let dest_channel_id = ChannelId(u64::from_str_radix(&x.dest_channel_id, 16).unwrap());
-        eprintln!("Forwarding message to {}", dest_channel_id.as_u64());
+        eprintln!("Forwarding Patchbot message to {}", dest_channel_id.as_u64());
         dest_channel_id
             .send_message(http.clone(), |f| {
                 f.set_embeds(
