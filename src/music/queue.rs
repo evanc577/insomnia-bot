@@ -101,9 +101,6 @@ pub async fn add_tracks(
 
                 // Make the next song in queue playable to reduce delay
                 let queue = handler.queue().current_queue();
-                if queue.len() > 1 {
-                    let _ = queue[1].make_playable();
-                }
 
                 // Updated tracks to send in reply
                 if pushed_tracks.len() >= MAX_NUM_DISPLAYED_TRACKS {

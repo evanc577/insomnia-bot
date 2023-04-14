@@ -100,18 +100,6 @@ impl VoiceEventHandler for TrackEndNotifier {
             .expect("Songbird Voice client placed in at initialization.")
             .clone();
         if let Some(handler_lock) = manager.get(self.guild_id) {
-            let handler = handler_lock.lock().await;
-            let queue = handler.queue();
-            if !handler.queue().is_empty() {
-                // Make the next song in queue playable to reduce delay
-                if queue.len() > 1 {
-                    let next_track = &queue.current_queue()[1];
-                    let _ = next_track.make_playable();
-                }
-                return None;
-            }
-            drop(handler);
-
             // Need to figure out how to prevent this message spamming chat when stopping queue
             // with multiple tracks
             // send_msg(&self.http, self.chan_id, SendMessage::Normal("Queue ended")).await;
