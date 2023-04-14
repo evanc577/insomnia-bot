@@ -16,7 +16,17 @@ pub async fn forward(
     let embed = message
         .embeds
         .iter()
-        .find(|e| e.author.is_some())
+        .filter(|e| {
+            if let Some(author) = &e.author {
+                !author
+                    .name
+                    .to_lowercase()
+                    .contains("this update is brought to you by")
+            } else {
+                false
+            }
+        })
+        .next()
         .ok_or(PatchbotForwardError::InvalidEmbeds)?;
     let embed_author = embed
         .author
