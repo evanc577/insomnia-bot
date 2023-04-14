@@ -1,6 +1,7 @@
 mod config;
 mod message;
 mod music;
+mod patchbot_forwarder;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -8,7 +9,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use poise::{serenity_prelude as serenity, Event};
+use patchbot_forwarder::forward;
+use poise::{serenity_prelude as serenity, Event, FrameworkContext};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -22,6 +24,8 @@ pub type PoiseError = Box<dyn std::error::Error + Send + Sync>;
 pub type PoiseContext<'a> = poise::Context<'a, Data, PoiseError>;
 #[derive(Debug)]
 pub struct Data {
+    db_uri: String,
+
     // TODO: Use Spotify token for authenticated API calls
     #[allow(dead_code)]
     spotify_token: Arc<Mutex<String>>,
@@ -95,11 +99,23 @@ async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
     }
 }
 
-async fn on_event(ctx: &serenity::Context, event: &Event<'_>) -> Result<(), PoiseError> {
+async fn on_event<U, E>(
+    ctx: &serenity::Context,
+    event: &Event<'_>,
+    _framework: FrameworkContext<'_, U, E>,
+    data: &Data,
+) -> Result<(), PoiseError> {
     #[allow(clippy::single_match)]
     match event {
         Event::VoiceStateUpdate { new: state, .. } => {
             handle_voice_state_event(ctx, state).await;
+        }
+        Event::Message {
+            new_message: message,
+        } => {
+            let http = ctx.http.clone();
+            let db_uri = data.db_uri.as_str();
+            let _ = forward(db_uri, http, message.clone()).await;
         }
         _ => {}
     }
@@ -111,6 +127,9 @@ async fn main() -> Result<()> {
     let config = Config::get_config()?;
     let spotify_token =
         get_spotify_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
+
+    // Set up message forwarder
+    let db_uri = patchbot_forwarder::create_table(&config).await;
 
     // Add bot commands
     let commands = vec![
@@ -125,6 +144,7 @@ async fn main() -> Result<()> {
         music::commands::song(),
         music::commands::stop(),
         music::commands::video(),
+        patchbot_forwarder::commands::patchbot_forward(),
     ];
 
     // Configure Poise options
@@ -136,7 +156,9 @@ async fn main() -> Result<()> {
         },
         pre_command: |ctx| Box::pin(pre_command(ctx)),
         on_error: |error| Box::pin(on_error(error)),
-        event_handler: |ctx, event, _framework, _data| Box::pin(on_event(ctx, event)),
+        event_handler: |ctx, event, framework, data| {
+            Box::pin(on_event(ctx, event, framework, data))
+        },
         ..Default::default()
     };
 
@@ -147,7 +169,14 @@ async fn main() -> Result<()> {
         .intents(
             serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
         )
-        .setup(move |_ctx, _ready, _framework| Box::pin(async move { Ok(Data { spotify_token }) }))
+        .setup(move |_ctx, _ready, _framework| {
+            Box::pin(async move {
+                Ok(Data {
+                    db_uri,
+                    spotify_token,
+                })
+            })
+        })
         .build()
         .await
         .unwrap();

@@ -4,8 +4,8 @@ version = "0.2.0"
 authors = ["Evan Chang <evanc577@gmail.com>"]
 edition = "2021"
 
-[profile.release]
-lto = true
+# [profile.release]
+# lto = true
 
 [dependencies]
 anyhow = "1.0"
@@ -42,6 +42,10 @@ features = ["derive"]
 [dependencies.tokio]
 version = "1.21"
 features = ["macros", "rt-multi-thread", "signal", "time"]
+
+[dependencies.sea-orm]
+version = "0.11"
+features = ["macros", "sqlx-postgres", "runtime-tokio-rustls"]
 
 [dev-dependencies]
 approx = "0.5"
