@@ -6,7 +6,7 @@ use poise::serenity_prelude::Channel;
 
 use crate::{PoiseContext, PoiseError};
 
-/// Forward Patchbot messages to a different channel
+/// Add rule to forward Patchbot messages to a different channel
 #[poise::command(
     slash_command,
     prefix_command,
@@ -44,8 +44,23 @@ pub async fn patchbot_forward(
     guild_only,
     required_permissions = "MANAGE_GUILD"
 )]
-pub async fn patchbot_list(
-    ctx: PoiseContext<'_>,
-) -> Result<(), PoiseError> {
+pub async fn patchbot_list(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
+    SendMessage::Normal("Unimplemented, contact bot author")
+        .send_msg(ctx)
+        .await;
+    Ok(())
+}
+
+/// Remove Patchbot forward rules
+#[poise::command(
+    slash_command,
+    prefix_command,
+    guild_only,
+    required_permissions = "MANAGE_GUILD"
+)]
+pub async fn patchbot_remove(ctx: PoiseContext<'_>) -> Result<(), PoiseError> {
+    SendMessage::Normal("Unimplemented, contact bot author")
+        .send_msg(ctx)
+        .await;
     Ok(())
 }

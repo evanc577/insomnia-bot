@@ -145,6 +145,8 @@ async fn main() -> Result<()> {
         music::commands::stop(),
         music::commands::video(),
         patchbot_forwarder::commands::patchbot_forward(),
+        patchbot_forwarder::commands::patchbot_list(),
+        patchbot_forwarder::commands::patchbot_remove(),
     ];
 
     // Configure Poise options
