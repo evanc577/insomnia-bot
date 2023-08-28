@@ -58,7 +58,7 @@ RUN curl -L https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-$
 RUN dnf install -y 'dnf-command(config-manager)'
 RUN dnf config-manager --enable crb
 RUN dnf install -y ffmpeg python3 python3-pip
-RUN pip3 install yt-dlp ytmusicapi
+RUN pip3 install ytmusicapi
 
 WORKDIR /insomnia_bot
 COPY --from=builder /insomnia_bot/target/release/insomnia-bot ./

@@ -2,6 +2,7 @@ mod config;
 mod message;
 mod music;
 mod patchbot_forwarder;
+mod package_update;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -9,6 +10,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use package_update::update_packages;
 use patchbot_forwarder::forward;
 use poise::{serenity_prelude as serenity, Event, FrameworkContext};
 use songbird::SerenityInit;
@@ -209,6 +211,9 @@ async fn main() -> Result<()> {
             shard_manager.lock().await.shutdown_all().await;
         });
     }
+
+    // Install packages and start auto updater
+    update_packages().await?;
 
     let _ = client
         .start()
