@@ -34,8 +34,8 @@ pub async fn update_packages() -> Result<(), UpdateError> {
 
     // Spawn a task that updates packages automatically
     tokio::spawn(async move {
-        // 1 day
-        let mut interval = interval(Duration::from_secs(24 * 60 * 60));
+        // 1 hour
+        let mut interval = interval(Duration::from_secs(60 * 60));
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
