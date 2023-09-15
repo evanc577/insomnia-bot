@@ -20,7 +20,7 @@ impl SearchType {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct YTMusicSearchResult {
-    category: String,
+    category: Option<String>,
     result_type: String,
     video_id: Option<String>,
     browse_id: Option<String>,
@@ -80,7 +80,13 @@ async fn search_id(query: String, search_type: SearchType) -> Result<String, Mus
     // Choose the first result, giving top result priority
     let result = search_results
         .iter()
-        .filter(|r| r.category.to_lowercase() == "top result")
+        .filter(|r| {
+            if let Some(cat) = &r.category {
+                cat.to_lowercase() == "top result"
+            } else {
+                false
+            }
+        })
         .filter_map(|r| check_results(r, &search_type))
         .chain(
             search_results
