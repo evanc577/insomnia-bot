@@ -34,7 +34,7 @@ pub async fn insert_to_table(
     let x = ActiveModel {
         guild_id: Set(format!(
             "{:x}",
-            ctx.guild_id().and_then(|x| Some(*x.as_u64())).unwrap_or(0)
+            ctx.guild_id().map(|x| *x.as_u64()).unwrap_or(0)
         )),
         source_channel_id: Set(format!("{:x}", source_channel_id)),
         match_text: Set(match_text.to_owned()),

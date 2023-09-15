@@ -16,7 +16,7 @@ pub async fn forward(
     let embed = message
         .embeds
         .iter()
-        .filter(|e| {
+        .find(|e| {
             if let Some(author) = &e.author {
                 !author
                     .name
@@ -26,7 +26,6 @@ pub async fn forward(
                 false
             }
         })
-        .next()
         .ok_or(PatchbotForwardError::InvalidEmbeds)?;
     let embed_author = embed
         .author
@@ -40,8 +39,7 @@ pub async fn forward(
         .filter(Column::GuildId.eq(format!(
                 "{:x}",
                 message
-                    .guild_id
-                    .and_then(|x| Some(*x.as_u64()))
+                    .guild_id.map(|x| *x.as_u64())
                     .unwrap_or(0)
             )))
         .filter(Column::SourceChannelId.eq(format!("{:x}", message.channel_id.as_u64())))
