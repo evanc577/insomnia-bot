@@ -1,8 +1,9 @@
 mod config;
 mod message;
 mod music;
-mod patchbot_forwarder;
 mod package_update;
+mod patchbot_forwarder;
+mod twitter_embed;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,6 +16,7 @@ use patchbot_forwarder::forward;
 use poise::{serenity_prelude as serenity, Event, FrameworkContext};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
+use twitter_embed::send_tweet_embed;
 
 use crate::config::Config;
 use crate::message::{SendMessage, SendableMessage};
@@ -116,8 +118,14 @@ async fn on_event<U, E>(
             new_message: message,
         } => {
             let http = ctx.http.clone();
+
+            // Forward patchbot messages
             let db_uri = data.db_uri.as_str();
-            let _ = forward(db_uri, http, message.clone()).await;
+            let _ = forward(db_uri, http.clone(), message.clone()).await;
+
+            // Add embed preview for Tweets
+            let _ = send_tweet_embed(http.clone(), message.clone())
+                .await;
         }
         _ => {}
     }
