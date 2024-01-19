@@ -10,13 +10,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
+use link_embed::reply_link_embeds;
 use once_cell::sync::Lazy;
 use package_update::update_packages;
 use patchbot_forwarder::forward;
 use poise::{serenity_prelude as serenity, Event, FrameworkContext};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
-use link_embed::{send_tweet_embed, send_reddit_embed};
 
 use crate::config::Config;
 use crate::message::{SendMessage, SendableMessage};
@@ -123,11 +123,8 @@ async fn on_event<U, E>(
             let db_uri = data.db_uri.as_str();
             let _ = forward(db_uri, http.clone(), message.clone()).await;
 
-            // Add embed preview for Tweets
-            let _ = send_tweet_embed(http.clone(), message.clone())
-                .await;
-            // Add embed preview for Reddit links
-            let _ = send_reddit_embed(http.clone(), message.clone())
+            // Add embed preview for Tweets and Reddit links
+            let _ = reply_link_embeds(http.clone(), message.clone())
                 .await;
         }
         _ => {}
