@@ -3,7 +3,7 @@ mod message;
 mod music;
 mod package_update;
 mod patchbot_forwarder;
-mod twitter_embed;
+mod link_embed;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ use patchbot_forwarder::forward;
 use poise::{serenity_prelude as serenity, Event, FrameworkContext};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
-use twitter_embed::send_tweet_embed;
+use link_embed::{send_tweet_embed, send_reddit_embed};
 
 use crate::config::Config;
 use crate::message::{SendMessage, SendableMessage};
@@ -125,6 +125,9 @@ async fn on_event<U, E>(
 
             // Add embed preview for Tweets
             let _ = send_tweet_embed(http.clone(), message.clone())
+                .await;
+            // Add embed preview for Reddit links
+            let _ = send_reddit_embed(http.clone(), message.clone())
                 .await;
         }
         _ => {}
