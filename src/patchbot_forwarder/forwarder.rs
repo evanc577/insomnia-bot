@@ -25,8 +25,11 @@ pub async fn forward(
             } else {
                 false
             }
-        })
-        .ok_or(PatchbotForwardError::InvalidEmbeds)?;
+        });
+    if embed.is_none() {
+        return Ok(());
+    };
+    let embed = embed.unwrap();
     let embed_author = embed
         .author
         .clone()

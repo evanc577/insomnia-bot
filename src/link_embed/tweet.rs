@@ -13,7 +13,7 @@ pub fn tweet_links(text: &str) -> Vec<ReplacedLink> {
         .map(|m| (m.start(), m.as_str()))
         .map(|(start, tweet)| ReplacedLink {
             start,
-            link: format!("https://fxtwitter.com/{}", tweet).into(),
+            link: format!("https://vxtwitter.com/{}", tweet).into(),
         })
         .collect()
 }

@@ -1,9 +1,9 @@
 mod config;
+mod link_embed;
 mod message;
 mod music;
 mod package_update;
 mod patchbot_forwarder;
-mod link_embed;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -121,11 +121,14 @@ async fn on_event<U, E>(
 
             // Forward patchbot messages
             let db_uri = data.db_uri.as_str();
-            let _ = forward(db_uri, http.clone(), message.clone()).await;
+            if let Err(e) = forward(db_uri, http.clone(), message.clone()).await {
+                eprintln!("Error forwarding patchbot message: {e}");
+            }
 
             // Add embed preview for Tweets and Reddit links
-            let _ = reply_link_embeds(http.clone(), message.clone())
-                .await;
+            if let Err(e) = reply_link_embeds(http.clone(), message.clone()).await {
+                eprintln!("Error sending link embed: {e}");
+            }
         }
         _ => {}
     }

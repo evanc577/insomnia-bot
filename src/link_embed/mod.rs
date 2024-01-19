@@ -4,7 +4,7 @@ mod tweet;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use poise::serenity_prelude::{Http, Message};
+use poise::serenity_prelude::{Http, Message, SerenityError};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct ReplacedLink {
@@ -18,7 +18,24 @@ impl ReplacedLink {
     }
 }
 
-pub async fn reply_link_embeds(http: Arc<Http>, message: Message) {
+#[derive(Debug)]
+pub struct LinkEmbedError {
+    context: String,
+    inner: SerenityError,
+}
+
+impl std::fmt::Display for LinkEmbedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "context: {}, {}", self.context, self.inner)
+    }
+}
+
+impl std::error::Error for LinkEmbedError {}
+
+pub async fn reply_link_embeds(
+    http: Arc<Http>,
+    mut message: Message,
+) -> Result<(), LinkEmbedError> {
     let tweet_links = tweet::tweet_links(&message.content);
     let reddit_links = reddit::reddit_links(&message.content).await;
     let reply_content = tweet_links
@@ -32,6 +49,20 @@ pub async fn reply_link_embeds(http: Arc<Http>, message: Message) {
             "Replying with updated link in {}",
             message.channel_id.as_u64()
         );
-        message.reply(&http, reply_content).await.unwrap();
+        message
+            .reply(&http, reply_content)
+            .await
+            .map_err(|e| LinkEmbedError {
+                context: "Send message".into(),
+                inner: e,
+            })?;
+        message
+            .suppress_embeds(http)
+            .await
+            .map_err(|e| LinkEmbedError {
+                context: "Suppress original embeds".into(),
+                inner: e,
+            })?;
     }
+    Ok(())
 }
