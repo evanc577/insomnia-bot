@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use futures::{stream, StreamExt};
 use once_cell::sync::Lazy;
 use regex::{Captures, Regex};
 use reqwest::{header, Client};
@@ -36,7 +37,9 @@ enum RedditLink {
 impl RedditLink {
     fn url(&self) -> Box<str> {
         match self {
-            RedditLink::Submission { id, .. } => format!("https://rxddit.com/{id}").into_boxed_str(),
+            RedditLink::Submission { id, .. } => {
+                format!("https://rxddit.com/{id}").into_boxed_str()
+            }
             RedditLink::Comment {
                 subreddit,
                 submission_id,
@@ -65,25 +68,17 @@ pub async fn reddit_links(text: &str) -> Vec<ReplacedLink> {
 
 /// Regular reddit urls
 async fn reddit_normal_links(text: &str) -> Vec<ReplacedLink> {
-    let captures = REDDIT_RE.captures_iter(text);
-    let mut new_links = Vec::new();
-    for capture in captures {
-        let start = capture.get(0).unwrap().start();
-        let links = match_reddit_link(capture)
-            .await
-            .into_iter()
-            .map(|link| (start, link));
-        new_links.extend(links);
-    }
-    let content = new_links
-        .iter()
-        .map(|(start, link)| ReplacedLink {
-            start: *start,
-            link: link.url(),
-            media: link.media(),
+    stream::iter(REDDIT_RE.captures_iter(text))
+        .filter_map(|c| async {
+            let start = c.get(0).unwrap().start();
+            match_reddit_link(c).await.map(|link| ReplacedLink {
+                start,
+                link: link.url(),
+                media: link.media(),
+            })
         })
-        .collect();
-    content
+        .collect()
+        .await
 }
 
 /// Reddit app share urls
@@ -114,26 +109,19 @@ async fn reddit_share_links(text: &str) -> Vec<ReplacedLink> {
         links
     };
 
-    let capture_links = links
+    let iter = links
         .iter()
         .filter_map(|(start, link)| REDDIT_RE.captures(link).map(|c| (start, c)));
-    let mut new_links = Vec::new();
-    for (start, link) in capture_links {
-        let links = match_reddit_link(link)
-            .await
-            .into_iter()
-            .map(|link| (start, link));
-        new_links.extend(links);
-    }
-    let content = new_links
-        .iter()
-        .map(|(start, link)| ReplacedLink {
-            start: **start,
-            link: link.url(),
-            media: link.media(),
+    stream::iter(iter)
+        .filter_map(|(start, c)| async {
+            match_reddit_link(c).await.map(|link| ReplacedLink {
+                start: *start,
+                link: link.url(),
+                media: link.media(),
+            })
         })
-        .collect();
-    content
+        .collect()
+        .await
 }
 
 async fn match_reddit_link(m: Captures<'_>) -> Option<RedditLink> {
@@ -143,12 +131,10 @@ async fn match_reddit_link(m: Captures<'_>) -> Option<RedditLink> {
             submission_id: submission_id.as_str().into(),
             comment_id: comment_id.as_str().into(),
         }),
-        (_, Some(submission_id), _) => {
-            Some(RedditLink::Submission {
-                id: submission_id.as_str().into(),
-                media: reddit_post_media(submission_id.as_str()).await,
-            })
-        }
+        (_, Some(submission_id), _) => Some(RedditLink::Submission {
+            id: submission_id.as_str().into(),
+            media: reddit_post_media(submission_id.as_str()).await,
+        }),
         _ => None,
     }
 }
@@ -186,29 +172,33 @@ async fn reddit_post_media(submission_id: &str) -> Option<Box<str>> {
         url: Option<Box<str>>,
     }
 
-    let url = format!(
-        "https://oauth.reddit.com/comments/{}/",
-        submission_id
-    );
+    let endpoint_url = format!("https://oauth.reddit.com/comments/{}/", submission_id);
     let response = CLIENT
-        .get(url)
+        .get(endpoint_url)
         .headers(headers)
         .query(&[("api_type", "json")])
         .send()
         .await
-        .unwrap()
-        .text()
+        .ok()?
+        .json::<Vec<Response>>()
         .await
-        .unwrap();
+        .ok()?;
 
-    let response: Vec<Response> = serde_json::from_str(&response).unwrap();
-
-    let url = response
+    let media_url = response
         .first()
         .and_then(|r| r.data.children.first())
-        .and_then(|c| c.data.url.clone());
+        .and_then(|c| c.data.url.clone())
+        .and_then(|url| reqwest::Url::parse(&url).ok())
+        .and_then(|url| media_url(&url));
 
-    url
+    media_url
+}
+
+fn media_url(url: &reqwest::Url) -> Option<Box<str>> {
+    match url.domain() {
+        Some("streamable.com") => Some(url.as_str().into()),
+        _ => None,
+    }
 }
 
 // Use an access token to bypass rate limits
