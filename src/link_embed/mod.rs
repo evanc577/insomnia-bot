@@ -10,6 +10,7 @@ use poise::serenity_prelude::{Http, Message, SerenityError};
 struct ReplacedLink {
     start: usize,
     link: Box<str>,
+    media: Option<Box<str>>,
 }
 
 impl ReplacedLink {
@@ -42,7 +43,13 @@ pub async fn reply_link_embeds(
         .into_iter()
         .chain(reddit_links.into_iter())
         .sorted()
-        .map(|link| link.url())
+        .map(|link| {
+            let mut s = link.url().to_string();
+            if let Some(media) = link.media {
+                s.push_str(&format!("\n{}", &media));
+            }
+            s
+        })
         .join("\n");
     if !reply_content.is_empty() {
         eprintln!(

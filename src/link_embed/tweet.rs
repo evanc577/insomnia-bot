@@ -14,6 +14,7 @@ pub fn tweet_links(text: &str) -> Vec<ReplacedLink> {
         .map(|(start, tweet)| ReplacedLink {
             start,
             link: format!("https://vxtwitter.com/{}", tweet).into(),
+            media: None,
         })
         .collect()
 }
