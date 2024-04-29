@@ -9,14 +9,16 @@ use time::{Duration, OffsetDateTime};
 use tokio::sync::Mutex;
 
 use super::ReplacedLink;
+use crate::link_embed::media::resolve_media_link;
 use crate::CLIENT;
 
 static REDDIT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com/r/(?P<subreddit>\w+)\b(?:/comments/(?P<submission>\w+\b)(?:/[^/]+/(?P<comment>\w+\b))?)").unwrap()
+    Regex::new(r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com(/r/\w+)?\b(?:/comments/(?P<submission>\w+\b)(?:/[^/]+/(?P<comment>\w+\b))?)").unwrap()
 });
 static REDDIT_SHARE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com/r/(?P<subreddit>\w+)\b/s/(?P<id>\w+)")
-        .unwrap()
+    let share_re = r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com/r/\w+/s/\w+";
+    let vreddit_re = r"\bhttps?://v\.redd\.it/\w+";
+    Regex::new(&format!("{}|{}", share_re, vreddit_re)).unwrap()
 });
 
 static REDDIT_ACCESS_TOKEN: Lazy<AccessToken> = Lazy::new(AccessToken::default);
@@ -28,7 +30,6 @@ enum RedditLink {
         media: Option<Box<str>>,
     },
     Comment {
-        subreddit: Box<str>,
         submission_id: Box<str>,
         comment_id: Box<str>,
     },
@@ -41,13 +42,10 @@ impl RedditLink {
                 format!("https://rxddit.com/{id}").into_boxed_str()
             }
             RedditLink::Comment {
-                subreddit,
                 submission_id,
                 comment_id,
-            } => {
-                format!("https://rxddit.com/r/{subreddit}/comments/{submission_id}/_/{comment_id}")
-                    .into_boxed_str()
-            }
+            } => format!("https://rxddit.com/comments/{submission_id}/_/{comment_id}")
+                .into_boxed_str(),
         }
     }
 
@@ -125,13 +123,12 @@ async fn reddit_share_links(text: &str) -> Vec<ReplacedLink> {
 }
 
 async fn match_reddit_link(m: Captures<'_>) -> Option<RedditLink> {
-    match (m.name("subreddit"), m.name("submission"), m.name("comment")) {
-        (Some(subreddit), Some(submission_id), Some(comment_id)) => Some(RedditLink::Comment {
-            subreddit: subreddit.as_str().into(),
+    match (m.name("submission"), m.name("comment")) {
+        (Some(submission_id), Some(comment_id)) => Some(RedditLink::Comment {
             submission_id: submission_id.as_str().into(),
             comment_id: comment_id.as_str().into(),
         }),
-        (_, Some(submission_id), _) => Some(RedditLink::Submission {
+        (Some(submission_id), _) => Some(RedditLink::Submission {
             id: submission_id.as_str().into(),
             media: reddit_post_media(submission_id.as_str()).await,
         }),
@@ -188,16 +185,12 @@ async fn reddit_post_media(submission_id: &str) -> Option<Box<str>> {
         .first()
         .and_then(|r| r.data.children.first())
         .and_then(|c| c.data.url.clone())
-        .and_then(|url| reqwest::Url::parse(&url).ok())
-        .and_then(|url| media_url(&url));
+        .and_then(|url| reqwest::Url::parse(&url).ok());
 
-    media_url
-}
-
-fn media_url(url: &reqwest::Url) -> Option<Box<str>> {
-    match url.domain() {
-        Some("streamable.com") => Some(url.as_str().into()),
-        _ => None,
+    if let Some(media_url) = media_url {
+        resolve_media_link(&media_url).await
+    } else {
+        None
     }
 }
 

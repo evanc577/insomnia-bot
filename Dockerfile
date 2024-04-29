@@ -24,9 +24,9 @@ RUN cargo install cargo-chef
 ###########
 FROM chef AS planner
 
-COPY src/ ./src
 COPY Cargo.toml .
 COPY Cargo.lock .
+COPY src/ ./src
 RUN cargo chef prepare  --recipe-path recipe.json
 
 
@@ -37,9 +37,9 @@ FROM chef AS builder
 
 COPY --from=planner /insomnia_bot/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
-COPY src/ ./src
 COPY Cargo.toml .
 COPY Cargo.lock .
+COPY src/ ./src
 RUN cargo build --release
 
 

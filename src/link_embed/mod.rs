@@ -1,5 +1,6 @@
 mod reddit;
 mod tweet;
+mod media;
 
 use std::sync::Arc;
 
