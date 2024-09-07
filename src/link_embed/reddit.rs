@@ -1,24 +1,25 @@
 use std::sync::Arc;
 
-use futures::{stream, StreamExt};
 use once_cell::sync::Lazy;
 use regex::{Captures, Regex};
 use reqwest::{header, Client};
 use serde::{Deserialize, Deserializer, Serialize};
 use time::{Duration, OffsetDateTime};
 use tokio::sync::Mutex;
+use url::Url;
 
-use super::ReplacedLink;
-use crate::link_embed::media::resolve_media_link;
+use super::UrlReplacer;
 use crate::CLIENT;
 
+impl UrlReplacer {
+    pub async fn replace_reddit(url: &Url) -> Vec<Url> {
+        let url = resolve_link_redirect(url).await;
+        reddit_normal_links(url).await.into_iter().collect()
+    }
+}
+
 static REDDIT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com(/r/\w+)?\b(?:/comments/(?P<submission>\w+\b)(?:/[^/]+/(?P<comment>\w+\b))?)").unwrap()
-});
-static REDDIT_SHARE_RE: Lazy<Regex> = Lazy::new(|| {
-    let share_re = r"\bhttps?://(?:(?:www|old|new)\.)?reddit\.com/r/\w+/s/\w+";
-    let vreddit_re = r"\bhttps?://v\.redd\.it/\w+";
-    Regex::new(&format!("{}|{}", share_re, vreddit_re)).unwrap()
+    Regex::new(r"\bhttps?://(?:(?:www|old|new|sh)\.)?reddit\.com/r/(?P<subreddit>\w+)?\b(?:/comments/(?P<submission>\w+\b)(?:/[^/]+/(?P<comment>\w+\b))?)").unwrap()
 });
 
 static REDDIT_ACCESS_TOKEN: Lazy<AccessToken> = Lazy::new(AccessToken::default);
@@ -26,8 +27,9 @@ static REDDIT_USER_AGENT: &str = "Reddit";
 
 enum RedditLink {
     Submission {
+        subreddit: Box<str>,
         id: Box<str>,
-        media: Option<Box<str>>,
+        media: Option<Url>,
     },
     Comment {
         submission_id: Box<str>,
@@ -36,20 +38,20 @@ enum RedditLink {
 }
 
 impl RedditLink {
-    fn url(&self) -> Box<str> {
-        match self {
-            RedditLink::Submission { id, .. } => {
-                format!("https://rxddit.com/{id}").into_boxed_str()
+    fn url(&self) -> Option<Url> {
+        let url = match self {
+            RedditLink::Submission { id, subreddit, .. } => {
+                format!("https://rxddit.com/r/{subreddit}/comments/{id}")
             }
             RedditLink::Comment {
                 submission_id,
                 comment_id,
-            } => format!("https://rxddit.com/comments/{submission_id}/_/{comment_id}")
-                .into_boxed_str(),
-        }
+            } => format!("https://rxddit.com/comments/{submission_id}/_/{comment_id}"),
+        };
+        Url::parse(&url).ok()
     }
 
-    fn media(&self) -> Option<Box<str>> {
+    fn media(&self) -> Option<Url> {
         match self {
             RedditLink::Submission { media, .. } => media.clone(),
             _ => None,
@@ -57,78 +59,52 @@ impl RedditLink {
     }
 }
 
-pub async fn reddit_links(text: &str) -> Vec<ReplacedLink> {
-    let mut links = Vec::new();
-    links.extend(reddit_normal_links(text).await);
-    links.extend(reddit_share_links(text).await);
-    links
-}
-
 /// Regular reddit urls
-async fn reddit_normal_links(text: &str) -> Vec<ReplacedLink> {
-    stream::iter(REDDIT_RE.captures_iter(text))
-        .filter_map(|c| async {
-            let start = c.get(0).unwrap().start();
-            match_reddit_link(c).await.map(|link| ReplacedLink {
-                start,
-                link: link.url(),
-                media: link.media(),
-            })
-        })
-        .collect()
-        .await
-}
-
-/// Reddit app share urls
-async fn reddit_share_links(text: &str) -> Vec<ReplacedLink> {
-    let share_links = REDDIT_SHARE_RE
-        .find_iter(text)
-        .map(|m| (m.start(), m.as_str()));
-
-    let links = {
-        let mut links: Vec<(usize, Box<str>)> = Vec::new();
-        for (start, share_link) in share_links {
-            let mut headers = header::HeaderMap::new();
-            headers.insert(
-                header::USER_AGENT,
-                header::HeaderValue::from_static(REDDIT_USER_AGENT),
-            );
-            if let Some(auth) = REDDIT_ACCESS_TOKEN.authentication(&CLIENT).await {
-                headers.insert(
-                    header::AUTHORIZATION,
-                    header::HeaderValue::from_str(&auth).unwrap(),
-                );
-            }
-
-            if let Ok(response) = CLIENT.head(share_link).headers(headers).send().await {
-                links.push((start, response.url().as_str().into()));
+async fn reddit_normal_links(url: Option<Url>) -> impl IntoIterator<Item = Url> {
+    let mut replaced_urls = Vec::new();
+    if let Some(url) = url {
+        if let Some(capture) = REDDIT_RE.captures(url.as_str()) {
+            if let Some(reddit_link) = match_reddit_link(capture).await {
+                if let Some(url) = reddit_link.url() {
+                    replaced_urls.push(url);
+                }
+                if let Some(media) = reddit_link.media() {
+                    replaced_urls.push(media);
+                }
             }
         }
-        links
-    };
+    }
+    replaced_urls
+}
 
-    let iter = links
-        .iter()
-        .filter_map(|(start, link)| REDDIT_RE.captures(link).map(|c| (start, c)));
-    stream::iter(iter)
-        .filter_map(|(start, c)| async {
-            match_reddit_link(c).await.map(|link| ReplacedLink {
-                start: *start,
-                link: link.url(),
-                media: link.media(),
-            })
-        })
-        .collect()
-        .await
+async fn resolve_link_redirect(url: &Url) -> Option<Url> {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::USER_AGENT,
+        header::HeaderValue::from_static(REDDIT_USER_AGENT),
+    );
+    if let Some(auth) = REDDIT_ACCESS_TOKEN.authentication(&CLIENT).await {
+        headers.insert(
+            header::AUTHORIZATION,
+            header::HeaderValue::from_str(&auth).unwrap(),
+        );
+    }
+
+    if let Ok(response) = CLIENT.head(url.as_str()).headers(headers).send().await {
+        Url::parse(response.url().as_str()).ok()
+    } else {
+        None
+    }
 }
 
 async fn match_reddit_link(m: Captures<'_>) -> Option<RedditLink> {
-    match (m.name("submission"), m.name("comment")) {
-        (Some(submission_id), Some(comment_id)) => Some(RedditLink::Comment {
+    match (m.name("subreddit"), m.name("submission"), m.name("comment")) {
+        (_, Some(submission_id), Some(comment_id)) => Some(RedditLink::Comment {
             submission_id: submission_id.as_str().into(),
             comment_id: comment_id.as_str().into(),
         }),
-        (Some(submission_id), _) => Some(RedditLink::Submission {
+        (Some(subreddit), Some(submission_id), _) => Some(RedditLink::Submission {
+            subreddit: subreddit.as_str().into(),
             id: submission_id.as_str().into(),
             media: reddit_post_media(submission_id.as_str()).await,
         }),
@@ -136,7 +112,7 @@ async fn match_reddit_link(m: Captures<'_>) -> Option<RedditLink> {
     }
 }
 
-async fn reddit_post_media(submission_id: &str) -> Option<Box<str>> {
+async fn reddit_post_media(submission_id: &str) -> Option<Url> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::USER_AGENT,
@@ -181,17 +157,13 @@ async fn reddit_post_media(submission_id: &str) -> Option<Box<str>> {
         .await
         .ok()?;
 
-    let media_url = response
+    response
         .first()
         .and_then(|r| r.data.children.first())
         .and_then(|c| c.data.url.clone())
-        .and_then(|url| reqwest::Url::parse(&url).ok());
-
-    if let Some(media_url) = media_url {
-        resolve_media_link(&media_url).await
-    } else {
-        None
-    }
+        // Don't follow other reddit links
+        .filter(|url| !REDDIT_RE.is_match(url))
+        .and_then(|url| Url::parse(&url).ok())
 }
 
 // Use an access token to bypass rate limits

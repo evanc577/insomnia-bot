@@ -1,20 +1,22 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
+use url::Url;
 
-use super::ReplacedLink;
+use super::UrlReplacer;
 
-static TWEET_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\bhttps?://(twitter|x)\.com/(?P<tweet>\w+/status/\d+)\b").unwrap());
+impl UrlReplacer {
+    pub async fn replace_tweet(url: &Url) -> Vec<Url> {
+        static TWEET_RE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"\bhttps?://(twitter|x)\.com/(?P<tweet>\w+/status/\d+)\b").unwrap()
+        });
 
-pub fn tweet_links(text: &str) -> Vec<ReplacedLink> {
-    TWEET_RE
-        .captures_iter(text)
-        .map(|capture| capture.name("tweet").unwrap())
-        .map(|m| (m.start(), m.as_str()))
-        .map(|(start, tweet)| ReplacedLink {
-            start,
-            link: format!("https://vxtwitter.com/{}", tweet).into(),
-            media: None,
-        })
-        .collect()
+        TWEET_RE
+            .captures_iter(url.as_str())
+            .filter_map(|capture| {
+                let path = capture.name("tweet").unwrap().as_str();
+                let url = format!("https://vxtwitter.com/{}", path);
+                Url::parse(&url).ok()
+            })
+            .collect()
+    }
 }
