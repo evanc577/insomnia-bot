@@ -38,7 +38,8 @@ enum UrlReplacer {
 impl UrlReplacer {
     fn dispatch_host(url: &Url) -> Option<Self> {
         // Twitter
-        static TWITTER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|\.)(twitter|x)\.com$").unwrap());
+        static TWITTER_RE: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"(^|\.)(twitter|x)\.com$").unwrap());
         if is_handled_host([&*TWITTER_RE].as_slice(), url) {
             return Some(Self::Twitter);
         }
@@ -159,7 +160,9 @@ pub async fn reply_link_embeds(
 
             None
         })
-        .map(|url| url.as_str().to_owned())
+        .map(|url| url.as_str())
+        .unique_by(|url| *url)
+        .map(|url| url.to_owned())
         .join("\n");
 
     // Send message

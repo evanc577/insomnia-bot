@@ -143,6 +143,8 @@ async fn reddit_post_media(submission_id: &str) -> Option<Url> {
     #[derive(Deserialize, Debug)]
     struct Data2 {
         url: Option<Box<str>>,
+        is_self: Option<bool>,
+        is_reddit_media_domain: Option<bool>,
     }
 
     let endpoint_url = format!("https://oauth.reddit.com/comments/{}/", submission_id);
@@ -153,16 +155,16 @@ async fn reddit_post_media(submission_id: &str) -> Option<Url> {
         .send()
         .await
         .ok()?
-        .json::<Vec<Response>>()
+        .text()
         .await
         .ok()?;
+    let response: Vec<Response> = serde_json::from_str(&response).ok()?;
 
     response
         .first()
         .and_then(|r| r.data.children.first())
+        .filter(|c| c.data.is_self != Some(true) && c.data.is_reddit_media_domain != Some(true))
         .and_then(|c| c.data.url.clone())
-        // Don't follow other reddit links
-        .filter(|url| !REDDIT_RE.is_match(url))
         .and_then(|url| Url::parse(&url).ok())
 }
 
