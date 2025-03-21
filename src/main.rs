@@ -31,8 +31,8 @@ pub struct Data {
     db_uri: String,
 
     // TODO: Use Spotify token for authenticated API calls
-    #[allow(dead_code)]
-    spotify_token: Arc<Mutex<String>>,
+    // #[allow(dead_code)]
+    // spotify_token: Arc<Mutex<String>>,
 }
 
 pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
@@ -138,8 +138,8 @@ async fn on_event<U, E>(
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::get_config()?;
-    let spotify_token =
-        get_spotify_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
+    // let spotify_token =
+    //     get_spotify_token_and_refresh(&config.spotify_client_id, &config.spotify_secret).await?;
 
     // Set up message forwarder
     let db_uri = patchbot_forwarder::create_table(&config).await;
@@ -188,7 +188,7 @@ async fn main() -> Result<()> {
             Box::pin(async move {
                 Ok(Data {
                     db_uri,
-                    spotify_token,
+                    // spotify_token,
                 })
             })
         })
