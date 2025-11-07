@@ -97,12 +97,13 @@ where
     fn build_embed(self, e: &mut CreateEmbed) -> &mut CreateEmbed {
         match self {
             Self::Normal(s) => {
+                let s = to_string_or_default(s);
                 e.description(s);
                 e.color(*EMBED_COLOR);
             }
             Self::Error(s) => {
                 e.title("Error");
-                let mut s = s.to_string();
+                let mut s = to_string_or_default(s);
                 if let Some(c) = s.get_mut(0..1) {
                     c.make_ascii_uppercase();
                 }
@@ -137,5 +138,14 @@ impl<'a> SendableMessage for CustomSendMessage<'a> {
 
     fn is_ephemeral(&self) -> bool {
         false
+    }
+}
+
+fn to_string_or_default(val: impl Display) -> String {
+    let s = val.to_string();
+    if s.is_empty() {
+        String::from("no description")
+    } else {
+        s
     }
 }
