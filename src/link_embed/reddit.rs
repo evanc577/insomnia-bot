@@ -238,12 +238,14 @@ impl AccessTokenInternal {
     async fn access_token(client: &Client) -> Option<Self> {
         static ENDPOINT: &str = "https://accounts.reddit.com/api/access_token";
         static AUTHORIZATION: &str = "basic b2hYcG9xclpZdWIxa2c6";
+        static USER_AGENT: &str = "Reddit/Version 2023.21.0/Build 956283/Android 9";
         let body = Body {
             scopes: vec!["*".into(), "email".into(), "pii".into()],
         };
         let response = client
             .post(ENDPOINT)
             .header(header::AUTHORIZATION, AUTHORIZATION)
+            .header(header::USER_AGENT, USER_AGENT)
             .json(&body)
             .send()
             .await
