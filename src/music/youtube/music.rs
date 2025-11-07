@@ -50,8 +50,8 @@ async fn search_id(query: String, search_type: SearchType) -> Result<String, Mus
     // Use Python ytmusicapi library
     let search_results_json: Result<anyhow::Result<String>, _> =
         tokio::task::spawn_blocking(move || {
-            pyo3::prepare_freethreaded_python();
-            Python::with_gil(|py| {
+            Python::initialize();
+            Python::attach(|py| {
                 // Import Python modules
                 let ytmusic = PyModule::import(py, "ytmusicapi")?;
                 let json = PyModule::import(py, "json")?;
@@ -127,8 +127,8 @@ fn check_results<'a>(
 async fn playlist_id(browse_id: String) -> Result<String, MusicError> {
     let album_results_json: Result<anyhow::Result<String>, _> =
         tokio::task::spawn_blocking(move || {
-            pyo3::prepare_freethreaded_python();
-            Python::with_gil(|py| {
+            Python::initialize();
+            Python::attach(|py| {
                 // Import Python modules
                 let ytmusic = PyModule::import(py, "ytmusicapi")?;
                 let json = PyModule::import(py, "json")?;
