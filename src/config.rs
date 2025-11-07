@@ -12,11 +12,6 @@ pub struct Config {
     #[serde(default = "default_prefix")]
     pub prefix: String,
 
-    #[serde(default)]
-    pub spotify_client_id: String,
-    #[serde(default)]
-    pub spotify_secret: String,
-
     #[serde(default = "default_database_user")]
     pub database_user: String,
     #[serde(default = "default_database_host")]
