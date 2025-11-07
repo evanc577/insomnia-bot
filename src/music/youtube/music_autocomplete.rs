@@ -72,11 +72,10 @@ struct ResponseRun {
     text: String,
 }
 
-pub async fn autocomplete_ytmusic<'a>(_ctx: PoiseContext<'_>, partial: &'a str) -> Vec<String> {
-    match autocomplete_ytmusic_helper(partial).await {
-        Ok(r) => r,
-        _ => vec![],
-    }
+pub async fn autocomplete_ytmusic(_ctx: PoiseContext<'_>, partial: &str) -> Vec<String> {
+    autocomplete_ytmusic_helper(partial)
+        .await
+        .unwrap_or_default()
 }
 
 async fn autocomplete_ytmusic_helper(partial: &str) -> Result<Vec<String>> {
@@ -96,7 +95,7 @@ async fn autocomplete_ytmusic_helper(partial: &str) -> Result<Vec<String>> {
         .json::<ResponseBody>()
         .await?
         .contents
-        .get(0)
+        .first()
         .ok_or_else(|| anyhow::anyhow!("no suggestions"))?
         .search_suggestions_section_renderer
         .contents

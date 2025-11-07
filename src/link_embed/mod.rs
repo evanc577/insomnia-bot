@@ -24,10 +24,6 @@ impl std::fmt::Display for LinkEmbedError {
 
 impl std::error::Error for LinkEmbedError {}
 
-pub trait ReplaceUrl {
-    async fn replace(&self, url: &Url) -> Vec<Url>;
-}
-
 #[derive(Debug)]
 enum UrlReplacer {
     Twitter,

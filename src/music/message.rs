@@ -171,7 +171,7 @@ impl PlayUpdate {
 
 /// Formats a Discord message embed when adding multiple tracks at once
 pub fn format_add_playlist<'a>(
-    tracks: impl ExactSizeIterator + Iterator<Item = TrackHandle> + Send + Sync + 'a,
+    tracks: impl ExactSizeIterator<Item = TrackHandle> + Send + Sync + 'a,
     num_queued_tracks: usize,
     total_tracks: usize,
     finished: bool,

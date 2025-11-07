@@ -84,6 +84,7 @@ impl VoiceEventHandler for TrackStartNotifier {
 }
 
 /// Sets a global event which will leave the voice channel after while
+#[allow(unused)]
 pub struct TrackEndNotifier {
     pub ctx: Arc<Mutex<Context>>,
     pub chan_id: ChannelId,

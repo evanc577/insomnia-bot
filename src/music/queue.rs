@@ -234,7 +234,7 @@ async fn create_track(
     let _ = track_handle.set_volume(volume);
 
     // Set TrackSegmentSkipper if skips exist
-    let sb_time = if let Some(segment) = skips.get(0).cloned() {
+    let sb_time = if let Some(segment) = skips.first().cloned() {
         let sb_time = skips.iter().map(|(a, b)| *b - *a).sum();
         track_handle
             .add_event(

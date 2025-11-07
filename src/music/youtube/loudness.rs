@@ -63,7 +63,7 @@ fn db_to_float(db: f32) -> f32 {
     if db < 0.0 {
         return 1.0;
     }
-    let raw_percent = 10f32.powf(-1.0 * db / 20.0);
+    let raw_percent = 10f32.powf(-db / 20.0);
     if !raw_percent.is_finite() {
         return 1.0;
     }
