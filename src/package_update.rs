@@ -26,7 +26,7 @@ impl std::fmt::Display for UpdateError {
 impl std::error::Error for UpdateError {}
 
 pub async fn update_packages() -> Result<(), UpdateError> {
-    static PACKAGES: [&str; 1] = ["yt-dlp"];
+    static PACKAGES: [&str; 2] = ["yt-dlp", "ytmusicapi"];
 
     for package in PACKAGES {
         install_pip_package(package).await?;

@@ -1,7 +1,7 @@
 ########
 # chef #
 ########
-FROM almalinux:9 AS chef
+FROM almalinux:10 AS chef
 
 WORKDIR /insomnia_bot
 
@@ -46,7 +46,7 @@ RUN cargo build --release
 ##########
 # Runner #
 ##########
-FROM almalinux:9
+FROM almalinux:10
 
 RUN dnf install -y epel-release && \
     curl -L https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm \
@@ -58,7 +58,6 @@ RUN dnf install -y epel-release && \
     dnf install -y 'dnf-command(config-manager)' && \
     dnf config-manager --enable crb && \
     dnf install -y ffmpeg python3 python3-pip && \
-    pip3 install ytmusicapi && \
     dnf clean all && pip cache purge
 
 WORKDIR /insomnia_bot
