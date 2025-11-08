@@ -5,7 +5,8 @@ mod tweet;
 use std::sync::{Arc, LazyLock};
 
 use itertools::Itertools;
-use poise::serenity_prelude::{Http, Message, SerenityError};
+use poise::serenity_prelude::prelude::SerenityError;
+use poise::serenity_prelude::{EditMessage, Http, Message};
 use regex::Regex;
 use url::Url;
 
@@ -40,14 +41,17 @@ impl UrlReplacer {
         }
 
         // Reddit
-        static REDDIT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\.)reddit\.com$").unwrap());
-        static V_REDDIT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^v.redd\.it$").unwrap());
+        static REDDIT_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(^|\.)reddit\.com$").unwrap());
+        static V_REDDIT_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^v.redd\.it$").unwrap());
         if is_handled_host([&*REDDIT_RE, &*V_REDDIT_RE].as_slice(), url) {
             return Some(Self::Reddit);
         }
 
         // Dubz
-        static DUBZ_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\.)dubz\.(co|link)$").unwrap());
+        static DUBZ_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(^|\.)dubz\.(co|link)$").unwrap());
         if is_handled_host([&*DUBZ_RE].as_slice(), url) {
             return Some(Self::Dubz);
         }
@@ -162,10 +166,7 @@ pub async fn reply_link_embeds(
 
     // Send message
     if !reply_content.is_empty() {
-        eprintln!(
-            "Replying with updated link in {}",
-            message.channel_id.as_u64()
-        );
+        eprintln!("Replying with updated link in {}", message.channel_id.get());
         message
             .reply(&http, reply_content)
             .await
@@ -174,7 +175,7 @@ pub async fn reply_link_embeds(
                 inner: e,
             })?;
         message
-            .suppress_embeds(http)
+            .edit(&http, EditMessage::new().suppress_embeds(true))
             .await
             .map_err(|e| LinkEmbedError {
                 context: "Suppress original embeds".into(),

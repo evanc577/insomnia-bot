@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use poise::serenity_prelude as serenity;
@@ -33,7 +33,7 @@ impl VoiceEventHandler for TrackSegmentSkipper {
                 }
 
                 // Skip to specified time
-                track.seek_time(seek_to).unwrap();
+                track.seek(seek_to);
 
                 // If another skip exists, add an event
                 if idx + 1 < self.segments.len() {

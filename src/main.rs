@@ -13,7 +13,7 @@ use anyhow::Result;
 use link_embed::reply_link_embeds;
 use package_update::update_packages;
 use patchbot_forwarder::forward;
-use poise::{serenity_prelude as serenity, Event, FrameworkContext};
+use poise::{serenity_prelude as serenity, FrameworkContext};
 use songbird::SerenityInit;
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -62,14 +62,17 @@ async fn pre_command(ctx: PoiseContext<'_>) {
         "command {} called by {}#{:04}",
         ctx.command().qualified_name,
         ctx.author().name,
-        ctx.author().discriminator
+        ctx.author()
+            .discriminator
+            .map(|i| std::convert::Into::<u16>::into(i))
+            .unwrap_or(0),
     );
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {:?}", error),
-        poise::FrameworkError::Command { error, ctx } => {
+        poise::FrameworkError::Command { error, ctx, .. } => {
             if let Some(e) = error.downcast_ref::<MusicError>() {
                 // If command returned a MusicError, notify the caller by sending a reply
                 match e {
@@ -98,28 +101,26 @@ async fn on_error(error: poise::FrameworkError<'_, Data, PoiseError>) {
 
 async fn on_event<U, E>(
     ctx: &serenity::Context,
-    event: &Event<'_>,
+    event: &serenity::FullEvent,
     _framework: FrameworkContext<'_, U, E>,
     data: &Data,
 ) -> Result<(), PoiseError> {
     #[allow(clippy::single_match)]
     match event {
-        Event::VoiceStateUpdate { new: state, .. } => {
+        serenity::FullEvent::VoiceStateUpdate { new: state, .. } => {
             handle_voice_state_event(ctx, state).await;
         }
-        Event::Message {
-            new_message: message,
-        } => {
+        serenity::FullEvent::Message { new_message } => {
             let http = ctx.http.clone();
 
             // Forward patchbot messages
             let db_uri = data.db_uri.as_str();
-            if let Err(e) = forward(db_uri, http.clone(), message.clone()).await {
+            if let Err(e) = forward(db_uri, http.clone(), new_message.clone()).await {
                 eprintln!("Error forwarding patchbot message: {e}");
             }
 
             // Add embed preview for Tweets and Reddit links
-            if let Err(e) = reply_link_embeds(http.clone(), message.clone()).await {
+            if let Err(e) = reply_link_embeds(http.clone(), new_message.clone()).await {
                 eprintln!("Error sending link embed: {e}");
             }
         }
@@ -170,23 +171,23 @@ async fn main() -> Result<()> {
 
     let framework = poise::Framework::builder()
         .options(options)
-        .client_settings(|cb| cb.register_songbird())
-        .token(config.discord_token)
-        .intents(
-            serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
-        )
-        .setup(move |_ctx, _ready, _framework| {
-            Box::pin(async move {
-                Ok(Data {
-                    db_uri,
-                })
-            })
-        })
-        .build()
-        .await
-        .unwrap();
+        // .client_settings(|cb| cb.register_songbird())
+        // .token(config.discord_token)
+        // .intents(
+        //     serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
+        // )
+        .setup(move |_ctx, _ready, _framework| Box::pin(async move { Ok(Data { db_uri }) }))
+        .build();
 
-    let mut client = framework.client();
+    let client = serenity::ClientBuilder::new(
+        config.discord_token,
+        serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT,
+    )
+    .framework(framework)
+    .register_songbird()
+    .await
+    .unwrap();
+
     {
         let mut data = client.data.write().await;
         data.insert::<QueueMutexMap>(HashMap::new());
@@ -200,7 +201,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             stream.recv().await;
             println!("Received SIGTERM, exiting");
-            shard_manager.lock().await.shutdown_all().await;
+            shard_manager.shutdown_all().await;
         });
 
         // SIGINT
@@ -209,7 +210,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             stream.recv().await;
             println!("Received SIGINT, exiting");
-            shard_manager.lock().await.shutdown_all().await;
+            shard_manager.shutdown_all().await;
         });
     }
 

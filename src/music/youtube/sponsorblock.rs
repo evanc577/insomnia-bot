@@ -1,6 +1,6 @@
 use std::{sync::LazyLock, time::Duration};
 
-use poise::serenity_prelude::TypeMapKey;
+use poise::serenity_prelude::prelude::TypeMapKey;
 use regex::Regex;
 use serde::Deserialize;
 

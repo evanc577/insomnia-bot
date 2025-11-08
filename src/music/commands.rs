@@ -8,6 +8,7 @@ use super::voice::{CanGetVoice, CanJoinVoice};
 use super::youtube::music::{yt_music_album_search, yt_music_song_search};
 use super::youtube::playlist::add_youtube_playlist;
 use crate::message::{CustomSendMessage, SendMessage, SendableMessage};
+use crate::music::music_data::MusicData;
 use crate::{PoiseContext, PoiseError};
 
 /// Play a song via YouTube Music or URL, if no argument is given, resume the paused track
@@ -213,12 +214,7 @@ pub async fn list(
     }
 
     let format_track = |track: &TrackHandle| {
-        let title = track
-            .metadata()
-            .title
-            .clone()
-            .unwrap_or_else(|| "Unknown".into());
-
+        let title = track.data::<MusicData>().title.clone();
         title.replace('`', "")
     };
 

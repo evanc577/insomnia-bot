@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::sync::LazyLock;
 
+use poise::serenity_prelude::CreateMessage;
 use poise::{async_trait, serenity_prelude as serenity, CreateReply, ReplyHandle};
 use serenity::builder::CreateEmbed;
 use serenity::http::Http;
@@ -24,8 +25,8 @@ where
 }
 
 pub enum CustomSendMessage<'a> {
-    Custom(Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync + 'a>),
-    Cancelable(Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync + 'a>),
+    Custom(Box<dyn FnOnce() -> CreateEmbed + Send + Sync + 'a>),
+    Cancelable(Box<dyn FnOnce() -> CreateEmbed + Send + Sync + 'a>),
 }
 
 #[async_trait]
@@ -36,7 +37,7 @@ pub trait SendableMessage {
         Self: Sized,
     {
         channel_id
-            .send_message(http, |m| m.embed(|e| self.build_embed(e)))
+            .send_message(http, CreateMessage::new().embed(self.build_embed()))
             .await
             .unwrap();
     }
@@ -60,10 +61,11 @@ pub trait SendableMessage {
             .unwrap();
     }
 
-    fn build_message<'b, 'c>(self, m: &'b mut CreateReply<'c>) -> &'b mut CreateReply<'c>
+    fn build_message(self) -> CreateReply
     where
         Self: Sized,
     {
+        let m = CreateMessage::new();
         // Add cancel button if needed
         if self.is_cancelable() {
             m.components(|c| {
@@ -86,7 +88,7 @@ pub trait SendableMessage {
         m.embed(|e| self.build_embed(e))
     }
 
-    fn build_embed(self, e: &mut CreateEmbed) -> &mut CreateEmbed;
+    fn build_embed(self) -> CreateEmbed;
     fn is_cancelable(&self) -> bool;
     fn is_ephemeral(&self) -> bool;
 }
@@ -95,24 +97,20 @@ impl<T> SendableMessage for SendMessage<T>
 where
     T: Display,
 {
-    fn build_embed(self, e: &mut CreateEmbed) -> &mut CreateEmbed {
+    fn build_embed(self) -> CreateEmbed {
         match self {
             Self::Normal(s) => {
                 let s = to_string_or_default(s);
-                e.description(s);
-                e.color(*EMBED_COLOR);
+                CreateEmbed::new().description(s).color(*EMBED_COLOR)
             }
             Self::Error(s) => {
-                e.title("Error");
                 let mut s = to_string_or_default(s);
                 if let Some(c) = s.get_mut(0..1) {
                     c.make_ascii_uppercase();
                 }
-                e.description(s);
-                e.color(*EMBED_ERROR_COLOR);
+                CreateEmbed::new().title("Error").description(s).color(*EMBED_ERROR_COLOR)
             }
         }
-        e
     }
 
     fn is_cancelable(&self) -> bool {
@@ -125,12 +123,12 @@ where
 }
 
 impl<'a> SendableMessage for CustomSendMessage<'a> {
-    fn build_embed(self, e: &mut CreateEmbed) -> &mut CreateEmbed {
+    fn build_embed(self) -> CreateEmbed {
         match self {
-            Self::Custom(f) => f(e),
-            Self::Cancelable(f) => f(e),
+            Self::Custom(f) => f(),
+            Self::Cancelable(f) => f(),
         }
-        e
+        
     }
 
     fn is_cancelable(&self) -> bool {

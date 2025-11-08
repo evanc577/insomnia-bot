@@ -1,13 +1,15 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::Result;
 use futures::stream::StreamExt;
 use futures::Stream;
 use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::prelude::TypeMapKey;
 use serenity::model::id::GuildId;
 use serenity::*;
-use songbird::input::{self, Restartable};
+use songbird::events::EventStore;
+use songbird::input::{self, Compose};
 use songbird::tracks::{Track, TrackHandle};
 use songbird::{Event, TrackEvent};
 
@@ -18,6 +20,7 @@ use super::voice::{CanGetVoice, CanJoinVoice};
 use super::youtube::loudness::get_loudness;
 use super::youtube::sponsorblock::{get_skips, SBDuration};
 use crate::message::{CustomSendMessage, SendableMessage, CANCEL_INTERACTION_ID};
+use crate::music::music_data::MusicData;
 use crate::PoiseContext;
 
 pub enum Query {
@@ -203,35 +206,41 @@ async fn create_track(
     query: Query,
     lazy: bool,
 ) -> Result<(Track, TrackHandle), MusicError> {
-    // Create source
-    let source_res = match query {
-        Query::Search(x) => Restartable::ytdl_search(x, lazy).await,
-        Query::Url(x) => Restartable::ytdl(x.to_owned(), lazy).await,
-    };
-    let source = match source_res {
-        Ok(s) => s,
-        Err(songbird::input::error::Error::Json { parsed_text, error }) => {
-            if error.to_string().starts_with("EOF") {
-                return Err(MusicError::NoResults);
-            } else {
-                return Err(MusicError::BadSource(parsed_text));
-            }
-        }
-        Err(e) => return Err(MusicError::Internal(e.into())),
-    };
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| reqwest::Client::new());
 
-    let input: input::Input = source.into();
+    // Create source
+    let ytdl = match query {
+        Query::Search(query) => input::YoutubeDl::new_search(*CLIENT, query),
+        Query::Url(url) => input::YoutubeDl::new(*CLIENT, url),
+    };
 
     // Get volume and skips
-    let (volume, skips) = if let Some(url) = &input.metadata.source_url {
+    let (volume, skips) = if let Some(url) = &ytdl
+        .aux_metadata()
+        .await
+        .map_err(|e| MusicError::BadSource(e.to_string()))?
+        .source_url
+    {
         tokio::join!(get_loudness(url), get_skips(url))
     } else {
         (1.0, vec![])
     };
 
     // Create track
-    let (track, track_handle) = songbird::tracks::create_player(input);
-    let _ = track_handle.set_volume(volume);
+    let input: input::Input = ytdl.into();
+    let title = input
+        .aux_metadata()
+        .await
+        .ok()
+        .map(|m| m.title)
+        .flatten()
+        .unwrap_or_else(|| "Unknown".to_owned());
+    let track = Track::new_with_data(input, Arc::new(MusicData { title }));
+
+    // Set volume
+    track.volume(volume);
+
+    let mut evt_store = EventStore::new_local();
 
     // Set TrackSegmentSkipper if skips exist
     let sb_time = if let Some(segment) = skips.first().cloned() {

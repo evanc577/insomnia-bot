@@ -66,7 +66,7 @@ pub async fn forward(
 
     // Forward messages
     for x in matches {
-        let dest_channel_id = ChannelId(u64::from_str_radix(&x.dest_channel_id, 16).unwrap());
+        let dest_channel_id = ChannelId::new(u64::from_str_radix(&x.dest_channel_id, 16).unwrap());
         eprintln!(
             "Forwarding Patchbot message to {}",
             dest_channel_id.as_u64()
