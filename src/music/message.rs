@@ -1,12 +1,12 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use markdown::{generate_markdown, Block, Span};
-use once_cell::sync::Lazy;
+use markdown::mdast;
 use poise::serenity_prelude as serenity;
 use serenity::builder::CreateEmbed;
 use serenity::Color;
 use songbird::tracks::TrackHandle;
+use std::sync::LazyLock;
 
 use super::youtube::sponsorblock::SBDuration;
 use crate::message::{EMBED_COLOR, EMBED_PLAYING_COLOR};
@@ -34,10 +34,16 @@ impl PlayUpdate {
             e.color(self.color());
 
             // Generate title
-            let title_span = Span::Text(self.title().to_string());
-            let title_block = Block::Paragraph(vec![title_span]);
-            let title_text = generate_markdown(vec![title_block]);
-            e.title(title_text);
+            let title = mdast::Node::Text(mdast::Text {
+                value: self.title().to_string(),
+                position: None,
+            });
+            let title = mdast::Node::Paragraph(mdast::Paragraph {
+                children: vec![title],
+                position: None,
+            });
+            let title = title.to_string();
+            e.title(title);
 
             // Track info
             if let Some(track) = self.track_handle() {
@@ -47,7 +53,7 @@ impl PlayUpdate {
                 } else {
                     format_track_link(&track)
                 };
-                let description_text = generate_markdown(vec![description_block]);
+                let description_text = description_block.to_string();
 
                 e.description(description_text);
                 if self.detailed() {
@@ -82,40 +88,52 @@ impl PlayUpdate {
 
     /// Add extended track information to Discord message embed
     fn add_details(&self, embed: &mut CreateEmbed, sb_duration: Option<Duration>) {
-        static ARTIST_NAME_SPAN: Lazy<Span> = Lazy::new(|| Span::Text("Artist".into()));
-        static DURATION_NAME_SPAN: Lazy<Span> = Lazy::new(|| Span::Text("Length".into()));
-        static QUEUE_NAME_SPAN: Lazy<Span> = Lazy::new(|| Span::Text("Queue".into()));
+        static ARTIST_NAME: LazyLock<String> = LazyLock::new(|| {
+            mdast::Node::Text(mdast::Text {
+                value: "Artist".to_owned(),
+                position: None,
+            })
+            .to_string()
+        });
+        static DURATION_NAME: LazyLock<String> = LazyLock::new(|| {
+            mdast::Node::Text(mdast::Text {
+                value: "Length".to_owned(),
+                position: None,
+            })
+            .to_string()
+        });
+        static QUEUE_NAME: LazyLock<String> = LazyLock::new(|| {
+            mdast::Node::Text(mdast::Text {
+                value: "Queue".to_owned(),
+                position: None,
+            })
+            .to_string()
+        });
 
         let mut fields = vec![];
 
         // Track info
         if let Some(track) = self.track_handle() {
             // Artist
-            let artist_name_text =
-                generate_markdown(vec![Block::Paragraph(vec![ARTIST_NAME_SPAN.clone()])]);
-            let artist_value_text =
-                generate_markdown(vec![Block::Paragraph(vec![format_artist(&track)])]);
+            let artist_name_text = ARTIST_NAME.clone();
+            let artist_value_text = format_artist(&track).to_string();
             fields.push((artist_name_text, artist_value_text, true));
 
             // Duration
-            let duration_name_text =
-                generate_markdown(vec![Block::Paragraph(vec![DURATION_NAME_SPAN.clone()])]);
-            let duration_value_text =
-                generate_markdown(vec![Block::Paragraph(vec![format_track_duration(
-                    &track,
-                    sb_duration,
-                )])]);
+            let duration_name_text = DURATION_NAME.clone();
+            let duration_value_text = format_track_duration(&track, sb_duration).to_string();
             fields.push((duration_name_text, duration_value_text, true));
         }
 
         // Queue size
         if let Some(n) = self.queue_size() {
             if n >= 2 {
-                let queue_name_text =
-                    generate_markdown(vec![Block::Paragraph(vec![QUEUE_NAME_SPAN.clone()])]);
-                let queue_value_text = generate_markdown(vec![Block::Paragraph(vec![Span::Text(
-                    (n - 1).to_string(),
-                )])]);
+                let queue_name_text = QUEUE_NAME.clone();
+                let queue_value_text = mdast::Node::Text(mdast::Text {
+                    value: (n - 1).to_string(),
+                    position: None,
+                })
+                .to_string();
                 fields.push((queue_name_text, queue_value_text, true));
             }
         }
@@ -177,7 +195,7 @@ pub fn format_add_playlist<'a>(
     finished: bool,
 ) -> Box<dyn FnOnce(&mut CreateEmbed) + Send + Sync + 'a> {
     Box::new(move |e| {
-        let title_text = if finished {
+        let title = if finished {
             format!(
                 "Finished Queuing {}/{} tracks",
                 num_queued_tracks, total_tracks
@@ -185,25 +203,41 @@ pub fn format_add_playlist<'a>(
         } else {
             format!("Queuing {}/{} tracks", num_queued_tracks, total_tracks)
         };
-        let title_span = Span::Text(title_text);
-        let title_block = Block::Paragraph(vec![title_span]);
-        let title_text = generate_markdown(vec![title_block]);
-        e.title(title_text);
+        let title = mdast::Node::Text(mdast::Text {
+            value: title,
+            position: None,
+        });
+        let title = mdast::Node::Paragraph(mdast::Paragraph {
+            children: vec![title],
+            position: None,
+        });
+        let title = title.to_string();
+        e.title(title);
 
         let mut description = Vec::with_capacity(tracks.len() + 1);
         if num_queued_tracks > tracks.len() {
-            description.push(Block::Paragraph(vec![Span::Emphasis(vec![Span::Text(
-                format!("{} tracks omitted", num_queued_tracks - tracks.len()),
-            )])]));
+            description.push(mdast::Node::Paragraph(mdast::Paragraph {
+                children: vec![mdast::Node::Emphasis(mdast::Emphasis {
+                    children: vec![mdast::Node::Text(mdast::Text {
+                        value: format!("{} tracks omitted", num_queued_tracks - tracks.len()),
+                        position: None,
+                    })],
+                    position: None,
+                })],
+                position: None,
+            }));
         }
 
         description.extend(tracks.map(|t| format_track_link(&t)));
-        e.description(generate_markdown(description));
+        e.description(mdast::Node::Root(mdast::Root {
+            children: description,
+            position: None,
+        }));
     })
 }
 
 /// Returns "artist — title"
-fn format_track_link(track: &TrackHandle) -> Block {
+fn format_track_link(track: &TrackHandle) -> mdast::Node {
     let title = track
         .metadata()
         .title
@@ -214,46 +248,94 @@ fn format_track_link(track: &TrackHandle) -> Block {
         .artist
         .clone()
         .unwrap_or_else(|| "Unknown".into());
-    let title_span = match track.metadata().source_url.clone() {
-        Some(u) => Span::Link(title, u, None),
-        None => Span::Text(title),
+    let title = match track.metadata().source_url.clone() {
+        Some(url) => mdast::Node::Link(mdast::Link {
+            children: vec![mdast::Node::Text(mdast::Text {
+                value: title,
+                position: None,
+            })],
+            position: None,
+            url,
+            title: None,
+        }),
+        None => mdast::Node::Text(mdast::Text {
+            value: title,
+            position: None,
+        }),
     };
-    let title_span = Span::Strong(vec![title_span]);
-    Block::Paragraph(vec![
-        Span::Text(artist),
-        Span::Text(" — ".to_string()),
-        title_span,
-    ])
+    let title = mdast::Node::Strong(mdast::Strong {
+        children: vec![title],
+        position: None,
+    });
+    mdast::Node::Paragraph(mdast::Paragraph {
+        children: vec![
+            mdast::Node::Text(mdast::Text {
+                value: artist,
+                position: None,
+            }),
+            mdast::Node::Text(mdast::Text {
+                value: " — ".to_string(),
+                position: None,
+            }),
+            title,
+        ],
+        position: None,
+    })
 }
 
 /// Only returns the track name, artist and other info will be placed in separate fields
-fn format_detailed_track_link(track: &TrackHandle) -> Block {
+fn format_detailed_track_link(track: &TrackHandle) -> mdast::Node {
     let title = track
         .metadata()
         .title
         .clone()
         .unwrap_or_else(|| "Unknown".into());
-    let title_span = match track.metadata().source_url.clone() {
-        Some(u) => Span::Link(title, u, None),
-        None => Span::Text(title),
+    let title = match track.metadata().source_url.clone() {
+        Some(url) => mdast::Node::Link(mdast::Link {
+            children: vec![mdast::Node::Text(mdast::Text {
+                value: title,
+                position: None,
+            })],
+            position: None,
+            url,
+            title: None,
+        }),
+        None => mdast::Node::Text(mdast::Text {
+            value: title,
+            position: None,
+        }),
     };
-    let title_span = Span::Strong(vec![title_span]);
-    Block::Paragraph(vec![title_span])
+    let title = mdast::Node::Strong(mdast::Strong {
+        children: vec![title],
+        position: None,
+    });
+    mdast::Node::Paragraph(mdast::Paragraph {
+        children: vec![title],
+        position: None,
+    })
 }
 
-fn format_artist(track: &TrackHandle) -> Span {
+fn format_artist(track: &TrackHandle) -> mdast::Node {
     let artist = track
         .metadata()
         .artist
         .clone()
         .unwrap_or_else(|| "Unknown".into());
-    Span::Text(artist)
+    mdast::Node::Text(mdast::Text {
+        value: artist,
+        position: None,
+    })
 }
 
-fn format_track_duration(track: &TrackHandle, sb_time: Option<Duration>) -> Span {
+fn format_track_duration(track: &TrackHandle, sb_time: Option<Duration>) -> mdast::Node {
     let duration = match track.metadata().duration {
         Some(d) => d,
-        None => return Span::Text("Unknown".into()),
+        None => {
+            return mdast::Node::Text(mdast::Text {
+                value: "Unknown".to_owned(),
+                position: None,
+            })
+        }
     };
 
     let mut ret = format_duration(duration);
@@ -261,7 +343,10 @@ fn format_track_duration(track: &TrackHandle, sb_time: Option<Duration>) -> Span
         let _ = write!(ret, " ({})", format_duration(duration - t));
     }
 
-    Span::Text(ret)
+    mdast::Node::Text(mdast::Text {
+        value: ret,
+        position: None,
+    })
 }
 
 fn format_duration(t: Duration) -> String {
