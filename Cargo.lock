@@ -1186,7 +1186,6 @@ dependencies = [
  "indextree",
  "itertools",
  "markdown",
- "once_cell",
  "poise",
  "pyo3",
  "regex",

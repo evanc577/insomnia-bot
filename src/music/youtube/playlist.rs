@@ -1,6 +1,6 @@
 use std::process::Command;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -8,7 +8,7 @@ use crate::music::error::MusicError;
 use crate::music::queue::{add_tracks, Query};
 use crate::PoiseContext;
 
-static YT_ID_RE: Lazy<Regex> = Lazy::new(|| {
+static YT_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"https?://(www|music)\.youtube\.com/playlist\?list=(?P<id>[0-9a-zA-Z\-_]+)")
         .unwrap()
 });

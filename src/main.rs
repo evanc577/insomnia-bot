@@ -6,11 +6,11 @@ mod package_update;
 mod patchbot_forwarder;
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::Result;
 use link_embed::reply_link_embeds;
-use once_cell::sync::Lazy;
 use package_update::update_packages;
 use patchbot_forwarder::forward;
 use poise::{serenity_prelude as serenity, Event, FrameworkContext};
@@ -28,7 +28,7 @@ pub struct Data {
     db_uri: String,
 }
 
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+pub static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .use_rustls_tls()
         .timeout(Duration::from_secs(5))

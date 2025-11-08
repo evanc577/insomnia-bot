@@ -2,10 +2,9 @@ mod dubz;
 mod reddit;
 mod tweet;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 use poise::serenity_prelude::{Http, Message, SerenityError};
 use regex::Regex;
 use url::Url;
@@ -34,21 +33,21 @@ enum UrlReplacer {
 impl UrlReplacer {
     fn dispatch_host(url: &Url) -> Option<Self> {
         // Twitter
-        static TWITTER_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"(^|\.)(twitter|x)\.com$").unwrap());
+        static TWITTER_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(^|\.)(twitter|x)\.com$").unwrap());
         if is_handled_host([&*TWITTER_RE].as_slice(), url) {
             return Some(Self::Twitter);
         }
 
         // Reddit
-        static REDDIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|\.)reddit\.com$").unwrap());
-        static V_REDDIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^v.redd\.it$").unwrap());
+        static REDDIT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\.)reddit\.com$").unwrap());
+        static V_REDDIT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^v.redd\.it$").unwrap());
         if is_handled_host([&*REDDIT_RE, &*V_REDDIT_RE].as_slice(), url) {
             return Some(Self::Reddit);
         }
 
         // Dubz
-        static DUBZ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|\.)dubz\.(co|link)$").unwrap());
+        static DUBZ_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\.)dubz\.(co|link)$").unwrap());
         if is_handled_host([&*DUBZ_RE].as_slice(), url) {
             return Some(Self::Dubz);
         }
@@ -186,7 +185,7 @@ pub async fn reply_link_embeds(
 }
 
 fn extract_urls(text: &str) -> Vec<Url> {
-    static RE: Lazy<Regex> = Lazy::new(|| {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"https?://(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap()
     });
 

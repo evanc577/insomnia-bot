@@ -1,6 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-use once_cell::sync::Lazy;
 use regex::{Captures, Regex};
 use reqwest::{header, Client};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,11 +17,11 @@ impl UrlReplacer {
     }
 }
 
-static REDDIT_RE: Lazy<Regex> = Lazy::new(|| {
+static REDDIT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bhttps?://(?:(?:www|old|new|sh)\.)?reddit\.com/r/(?P<subreddit>\w+)?\b(?:/comments/(?P<submission>\w+\b)(?:/[^/]+/(?P<comment>\w+\b))?)").unwrap()
 });
 
-static REDDIT_ACCESS_TOKEN: Lazy<AccessToken> = Lazy::new(AccessToken::default);
+static REDDIT_ACCESS_TOKEN: LazyLock<AccessToken> = LazyLock::new(AccessToken::default);
 static REDDIT_USER_AGENT: &str = "Reddit";
 
 enum RedditLink {

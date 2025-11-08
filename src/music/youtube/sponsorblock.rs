@@ -1,14 +1,13 @@
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
-use once_cell::sync::Lazy;
 use poise::serenity_prelude::TypeMapKey;
 use regex::Regex;
 use serde::Deserialize;
 
 use crate::CLIENT;
 
-static YT_ID_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap());
+static YT_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https://www\.youtube\.com/watch\?v=([\w\-]+)").unwrap());
 
 pub struct SBDuration;
 

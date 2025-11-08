@@ -1,15 +1,18 @@
+use std::sync::LazyLock;
+
 use anyhow::Result;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
 use crate::music::error::MusicError;
 use crate::CLIENT;
 
-static JSON_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"<script.*?ytInitialPlayerResponse.*?(\{.*\}).*</script").unwrap());
+static JSON_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<script.*?ytInitialPlayerResponse.*?(\{.*\}).*</script").unwrap()
+});
 
-static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://www\.youtube\.com").unwrap());
+static URL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https?://www\.youtube\.com").unwrap());
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

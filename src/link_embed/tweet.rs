@@ -1,4 +1,5 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use regex::Regex;
 use url::Url;
 
@@ -6,7 +7,7 @@ use super::UrlReplacer;
 
 impl UrlReplacer {
     pub async fn replace_tweet(url: &Url) -> Vec<Url> {
-        static TWEET_RE: Lazy<Regex> = Lazy::new(|| {
+        static TWEET_RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\bhttps?://(twitter|x)\.com/(?P<tweet>\w+/status/\d+)\b").unwrap()
         });
 
